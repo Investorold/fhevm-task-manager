@@ -144,9 +144,10 @@ class RealContractService {
       
       console.log('📤 Sending encrypted text task to blockchain...');
       
-      // Use the backward-compatible createTask function
-      const tx = await this.contract.createTask(
+      // Use the hybrid createTaskWithText function with proper FHEVM encryption
+      const tx = await this.contract.createTaskWithText(
         encryptedTitle,         // Encrypted title
+        encryptedDescription,    // Encrypted description
         encryptedDueDate,        // Encrypted due date
         encryptedPriority,       // Encrypted priority
         '0x',                    // Proof (FHEVM handles this internally)
