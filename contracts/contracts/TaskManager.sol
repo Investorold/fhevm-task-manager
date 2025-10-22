@@ -170,6 +170,112 @@ contract TaskManager is SepoliaConfig, Ownable {
 
         }
 
+    /**
+     * @dev Creates a new confidential task with text title and description.
+     * @param encryptedTitle The encrypted title of the task (as number).
+     * @param encryptedDescription The encrypted description of the task (as number).
+     * @param encryptedDueDate The encrypted due date of the task.
+     * @param encryptedPriority The encrypted priority of the task (1-5).
+     * @param inputProof The ZK proof for the encrypted inputs.
+     */
+    function createTaskWithText(
+        externalEuint64 encryptedTitle,
+        externalEuint64 encryptedDescription,
+        externalEuint64 encryptedDueDate,
+        externalEuint8 encryptedPriority,
+        bytes calldata inputProof
+    ) public payable {
+        emit Debug("createTaskWithText started", 0);
+        require(msg.value == taskCreationFee, "Incorrect fee sent");
+        emit Debug("Fee checked", 1);
+
+        // Validate inputs
+        euint64 title = FHE.fromExternal(encryptedTitle, inputProof);
+        emit Debug("fromExternal title done", 2);
+        euint64 description = FHE.fromExternal(encryptedDescription, inputProof);
+        emit Debug("fromExternal description done", 3);
+        euint64 dueDate = FHE.fromExternal(encryptedDueDate, inputProof);
+        emit Debug("fromExternal dueDate done", 4);
+        euint8 priority = FHE.fromExternal(encryptedPriority, inputProof);
+        emit Debug("fromExternal priority done", 5);
+
+        // Create task with text
+        Task memory newTask = Task({
+            title: title,
+            description: description,
+            dueDate: dueDate,
+            priority: priority,
+            numericId: FHE.asEuint64(0), // No numeric ID for text tasks
+            status: TaskStatus.Pending
+        });
+        tasks[msg.sender].push(newTask);
+        emit Debug("Task pushed", 6);
+
+        // Grant permissions
+        FHE.allow(title, msg.sender);
+        FHE.allow(description, msg.sender);
+        FHE.allow(dueDate, msg.sender);
+        FHE.allow(priority, msg.sender);
+        FHE.allowThis(title);
+        FHE.allowThis(description);
+        FHE.allowThis(dueDate);
+        FHE.allowThis(priority);
+        emit Debug("Permissions granted", 7);
+    }
+
+    /**
+     * @dev Creates a new confidential task with numeric title and ID.
+     * @param encryptedTitle The encrypted title of the task (as number).
+     * @param encryptedDueDate The encrypted due date of the task.
+     * @param encryptedPriority The encrypted priority of the task (1-5).
+     * @param encryptedNumericId The encrypted numeric ID for the task.
+     * @param inputProof The ZK proof for the encrypted inputs.
+     */
+    function createTaskWithNumbers(
+        externalEuint64 encryptedTitle,
+        externalEuint64 encryptedDueDate,
+        externalEuint8 encryptedPriority,
+        externalEuint64 encryptedNumericId,
+        bytes calldata inputProof
+    ) public payable {
+        emit Debug("createTaskWithNumbers started", 0);
+        require(msg.value == taskCreationFee, "Incorrect fee sent");
+        emit Debug("Fee checked", 1);
+
+        // Validate inputs
+        euint64 title = FHE.fromExternal(encryptedTitle, inputProof);
+        emit Debug("fromExternal title done", 2);
+        euint64 dueDate = FHE.fromExternal(encryptedDueDate, inputProof);
+        emit Debug("fromExternal dueDate done", 3);
+        euint8 priority = FHE.fromExternal(encryptedPriority, inputProof);
+        emit Debug("fromExternal priority done", 4);
+        euint64 numericId = FHE.fromExternal(encryptedNumericId, inputProof);
+        emit Debug("fromExternal numericId done", 5);
+
+        // Create task with numbers
+        Task memory newTask = Task({
+            title: title,
+            description: FHE.asEuint64(0), // Empty description for numeric tasks
+            dueDate: dueDate,
+            priority: priority,
+            numericId: numericId,
+            status: TaskStatus.Pending
+        });
+        tasks[msg.sender].push(newTask);
+        emit Debug("Task pushed", 6);
+
+        // Grant permissions
+        FHE.allow(title, msg.sender);
+        FHE.allow(dueDate, msg.sender);
+        FHE.allow(priority, msg.sender);
+        FHE.allow(numericId, msg.sender);
+        FHE.allowThis(title);
+        FHE.allowThis(dueDate);
+        FHE.allowThis(priority);
+        FHE.allowThis(numericId);
+        emit Debug("Permissions granted", 7);
+    }
+
     function getTasks(address user) public view returns (Task[] memory) {
         return tasks[user];
     }
