@@ -254,4 +254,70 @@ contract TaskManager is SepoliaConfig, Ownable {
 
         delete requestInitiator[requestId];
     }
+
+    /**
+     * @dev Requests decryption of a specific task for the caller.
+     * This function initiates the decryption process for FHEVM encrypted data.
+     * @param taskIndex The index of the task to decrypt
+     */
+    function requestTaskDecryption(uint256 taskIndex) external {
+        require(taskIndex < tasks[msg.sender].length, "Task does not exist");
+        
+        // Get the task
+        Task storage task = tasks[msg.sender][taskIndex];
+        
+        // Create array of ciphertexts to decrypt
+        bytes32[] memory ciphertexts = new bytes32[](3);
+        ciphertexts[0] = FHE.toBytes32(task.title);
+        ciphertexts[1] = FHE.toBytes32(task.dueDate);
+        ciphertexts[2] = FHE.toBytes32(task.priority);
+        
+        // Request decryption
+        uint256 requestId = FHE.requestDecryption(ciphertexts, this.taskDecryptionCallback.selector);
+        
+        // Store the request initiator
+        requestInitiator[requestId] = msg.sender;
+        
+        emit DecryptionRequested(requestId, msg.sender);
+    }
+
+    /**
+     * @dev Callback function called by the relayer after decryption.
+     * This function receives the decrypted data and can process it.
+     * @param requestId The ID of the decryption request
+     * @param cleartexts The decrypted data
+     * @param decryptionProof The proof of decryption
+     */
+    function taskDecryptionCallback(
+        uint256 requestId,
+        bytes memory cleartexts,
+        bytes memory decryptionProof
+    ) external {
+        // Verify the request was initiated by the caller
+        require(requestInitiator[requestId] == msg.sender, "Unauthorized decryption request");
+        
+        // Verify the decryption proof
+        FHE.checkSignatures(requestId, cleartexts, decryptionProof);
+        
+        // Decode the decrypted data
+        (uint64 decryptedTitle, uint64 decryptedDueDate, uint8 decryptedPriority) = 
+            abi.decode(cleartexts, (uint64, uint64, uint8));
+        
+        // Emit event with decrypted data (for frontend to listen)
+        emit TaskDecrypted(requestId, msg.sender, decryptedTitle, decryptedDueDate, decryptedPriority);
+        
+        // Clean up the request
+        delete requestInitiator[requestId];
+    }
+
+    /**
+     * @dev Event emitted when a task is successfully decrypted
+     */
+    event TaskDecrypted(
+        uint256 indexed requestId,
+        address indexed user,
+        uint64 title,
+        uint64 dueDate,
+        uint8 priority
+    );
 }
