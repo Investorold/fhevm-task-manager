@@ -144,10 +144,9 @@ class RealContractService {
       
       console.log('📤 Sending encrypted text task to blockchain...');
       
-      // Use the proper createTaskWithText function
-      const tx = await this.contract.createTaskWithText(
+      // Use the backward-compatible createTask function
+      const tx = await this.contract.createTask(
         encryptedTitle,         // Encrypted title
-        encryptedDescription,    // Encrypted description
         encryptedDueDate,        // Encrypted due date
         encryptedPriority,       // Encrypted priority
         '0x',                    // Proof (FHEVM handles this internally)
@@ -243,7 +242,7 @@ class RealContractService {
     
       // Ensure we have a valid contract address
       if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-        this.contractAddress = '0x30182D50035E926e5Ab728561070e1ba2c14B2A1';
+        this.contractAddress = '0xd587bC6e36938C3d50f0419fd86038E9deD9c360';
         console.log('🔧 Set contract address to:', this.contractAddress);
       }
       
@@ -584,7 +583,7 @@ class RealContractService {
       this.contractAddress = contractAddress;
     } else {
       // Set default contract address if not provided
-      this.contractAddress = '0x30182D50035E926e5Ab728561070e1ba2c14B2A1';
+      this.contractAddress = '0xd587bC6e36938C3d50f0419fd86038E9deD9c360';
       console.log('🔧 Using default contract address:', this.contractAddress);
     }
     
