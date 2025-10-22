@@ -2,8 +2,8 @@
 // Update this file with your Termius-deployed contract address
 
 export const CONTRACT_CONFIG = {
-  // Updated Sepolia contract address (clean deployment)
-  TASK_MANAGER_ADDRESS: '0x9F14bF0d8a69132Ab909C248A0Dc80896EBa1213',
+  // Updated Sepolia contract address (fresh deployment with hybrid functions)
+  TASK_MANAGER_ADDRESS: '0xFA2B7320aB62f13f9CfF671F160006dD1287839F',
   
   // Network configuration
   NETWORK: {

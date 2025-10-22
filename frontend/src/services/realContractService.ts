@@ -144,6 +144,7 @@ class RealContractService {
       
       console.log('📤 Sending encrypted text task to blockchain...');
       
+      // Use the proper createTaskWithText function
       const tx = await this.contract.createTaskWithText(
         encryptedTitle,         // Encrypted title
         encryptedDescription,    // Encrypted description
