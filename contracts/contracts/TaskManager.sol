@@ -220,9 +220,12 @@ contract TaskManager is SepoliaConfig, Ownable {
 
         // Grant decryption permission to the recipient for all fields
         FHE.allow(task.title, recipient);
-        FHE.allow(task.description, recipient);
         FHE.allow(task.dueDate, recipient);
         FHE.allow(task.priority, recipient);
+        
+        // Only grant permissions for description and numericId if they're not zero
+        // (for backward compatibility with old createTask function)
+        FHE.allow(task.description, recipient);
         FHE.allow(task.numericId, recipient);
         
         // Track the shared task
