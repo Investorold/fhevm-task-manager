@@ -243,7 +243,7 @@ class RealContractService {
     
       // Ensure we have a valid contract address
       if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-        this.contractAddress = '0xd587bC6e36938C3d50f0419fd86038E9deD9c360';
+        this.contractAddress = '0x9e5B4b2847c9DacfDA297d8CD67E16Fb06b8e40a';
         console.log('🔧 Set contract address to:', this.contractAddress);
       }
       
@@ -584,7 +584,7 @@ class RealContractService {
       this.contractAddress = contractAddress;
     } else {
       // Set default contract address if not provided
-      this.contractAddress = '0xd587bC6e36938C3d50f0419fd86038E9deD9c360';
+      this.contractAddress = '0x9e5B4b2847c9DacfDA297d8CD67E16Fb06b8e40a';
       console.log('🔧 Using default contract address:', this.contractAddress);
     }
     
