@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// AI ASSISTANT PROOF - MODIFIED AT 15:35 UTC
 pragma solidity ^0.8.24;
 
 import { FHE, euint32, euint64, euint8, ebool, externalEuint64, externalEuint8 } from "@fhevm/solidity/lib/FHE.sol";
@@ -15,11 +16,13 @@ contract TaskManager is SepoliaConfig, Ownable {
     }
 
     // Struct to represent a task.
-    // The title and due date will be encrypted.
+    // The title and description will be encrypted as text.
     struct Task {
-        euint64 title;
-        euint64 dueDate;
-        euint8 priority;
+        euint64 title;         // Encrypted title (as number)
+        euint64 description;   // Encrypted description (as number)
+        euint64 dueDate;       // Encrypted due date (Unix timestamp)
+        euint8 priority;       // Encrypted priority (1-5)
+        euint64 numericId;     // Optional numeric ID for sorting/filtering
         TaskStatus status;
     }
 
@@ -29,10 +32,15 @@ contract TaskManager is SepoliaConfig, Ownable {
     mapping(address => uint32) public lastDueSoonCount;
     mapping(uint256 => address) public requestInitiator;
 
+    // NEW: Track shared tasks
+    mapping(address => uint256[]) public sharedTasks; // recipient => task indices
+    mapping(uint256 => address) public taskOwners; // task index => original owner
+    mapping(address => mapping(uint256 => bool)) public isTaskSharedWith; // recipient => task index => is shared
+
     uint256 public taskCreationFee = 0.0001 ether;
 
         event DecryptionRequested(uint256 requestId, address indexed initiator);
-
+        event TaskShared(uint256 indexed taskIndex, address indexed owner, address indexed recipient);
         event Debug(string message, uint256 value);
 
     
@@ -126,15 +134,12 @@ contract TaskManager is SepoliaConfig, Ownable {
             // 2. Create and store the new task
 
             Task memory newTask = Task({
-
                 title: title,
-
+                description: FHE.asEuint64(0), // Empty description for backward compatibility
                 dueDate: dueDate,
-
                 priority: priority,
-
+                numericId: FHE.asEuint64(0), // No numeric ID for backward compatibility
                 status: TaskStatus.Pending
-
             });
 
             tasks[msg.sender].push(newTask);
@@ -213,10 +218,22 @@ contract TaskManager is SepoliaConfig, Ownable {
 
         Task storage task = tasks[msg.sender][taskIndex];
 
-        // Grant decryption permission to the recipient
+        // Grant decryption permission to the recipient for all fields
         FHE.allow(task.title, recipient);
+        FHE.allow(task.description, recipient);
         FHE.allow(task.dueDate, recipient);
         FHE.allow(task.priority, recipient);
+        FHE.allow(task.numericId, recipient);
+        
+        // Track the shared task
+        if (!isTaskSharedWith[recipient][taskIndex]) {
+            sharedTasks[recipient].push(taskIndex);
+            taskOwners[taskIndex] = msg.sender;
+            isTaskSharedWith[recipient][taskIndex] = true;
+        }
+        
+        // Emit event for frontend to listen
+        emit TaskShared(taskIndex, msg.sender, recipient);
     }
 
     function requestTasksDueSoonCount(externalEuint64 encryptedTimeMargin, bytes calldata inputProof) public {
@@ -233,18 +250,19 @@ contract TaskManager is SepoliaConfig, Ownable {
         }
 
         bytes32[] memory cts = new bytes32[](1);
-            FHE.allow(dueSoonCount, 0xa02Cda4Ca3a71D7C46997716F4283aa851C28812);
-            cts[0] = FHE.toBytes32(dueSoonCount);    uint256 requestId = FHE.requestDecryption(cts, this.callbackCount.selector);
+        cts[0] = FHE.toBytes32(dueSoonCount);
+        uint256 requestId = FHE.requestDecryption(cts, this.callbackCount.selector);
         console.log("FHE.requestDecryption called, requestId: ", requestId);
         requestInitiator[requestId] = msg.sender;
         emit DecryptionRequested(requestId, msg.sender);
     }
 
     function callbackCount(uint256 requestId, bytes memory cleartexts, bytes memory decryptionProof) public {
-        // Only perform signature check on live networks, not on local hardhat test network (chainId 31337)
-        if (block.chainid != 31337) {
-            FHE.checkSignatures(requestId, cleartexts, decryptionProof);
-        }
+        // Verify the request was initiated by the caller
+        require(requestInitiator[requestId] == msg.sender, "Unauthorized decryption request");
+        
+        // Verify the decryption proof
+        FHE.checkSignatures(requestId, cleartexts, decryptionProof);
 
         address initiator = requestInitiator[requestId];
         require(initiator != address(0), "Request ID not found or already processed");

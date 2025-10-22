@@ -3,13 +3,13 @@
 
 export const CONTRACT_CONFIG = {
   // Update this with your actual contract address from Termius deployment
-  TASK_MANAGER_ADDRESS: '0x30182D50035E926e5Ab728561070e1ba2c14B2A1', // TODO: Replace with Termius address
+  TASK_MANAGER_ADDRESS: '0xb96Beea2d5F51cEaA89bcB3dDEB7ba59C1f1d640', // Updated Sepolia contract with backward compatibility
   
   // Network configuration
   NETWORK: {
-    name: 'Sepolia', // Update if deployed on different network
+    name: 'Sepolia', // Sepolia testnet
     chainId: 11155111, // Sepolia chain ID
-    rpcUrl: 'https://sepolia.infura.io/v3/YOUR_INFURA_KEY', // Update with your RPC URL
+    rpcUrl: 'https://sepolia.infura.io/v3/YOUR_INFURA_KEY', // Sepolia RPC URL
   },
   
   // FHEVM Configuration for Sepolia

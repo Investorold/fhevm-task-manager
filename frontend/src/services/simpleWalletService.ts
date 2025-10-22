@@ -11,6 +11,51 @@ export class SimpleWalletService {
   private readonly STORAGE_KEY = 'fhevm_wallet_connection';
   private readonly INACTIVITY_TIMEOUT = 5 * 24 * 60 * 60 * 1000; // 5 days
 
+  // Provider conflict resolution
+  private resolveProviderConflicts() {
+    try {
+      // If we already have a stable provider, use it
+      if ((window as any).__stableProvider) {
+        console.log('🔧 Using existing stable provider');
+        return (window as any).__stableProvider;
+      }
+
+      let selectedProvider = null;
+
+      // Handle multiple providers scenario
+      if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+        console.log('🔧 Multiple providers detected:', window.ethereum.providers.length);
+        
+        // Prefer MetaMask, but use any available
+        selectedProvider = window.ethereum.providers.find((p: any) => p.isMetaMask) || window.ethereum.providers[0];
+        
+        console.log('🔧 Selected provider from array:', selectedProvider?.isMetaMask ? 'MetaMask' : 'Other');
+      } 
+      // Single provider scenario
+      else if (window.ethereum) {
+        console.log('🔧 Single provider detected');
+        selectedProvider = window.ethereum;
+      }
+      // Check for specific wallets
+      else if (window.evmAsk) {
+        console.log('🔧 EVM Ask detected');
+        selectedProvider = window.evmAsk;
+      }
+
+      if (selectedProvider) {
+        // Store the stable provider to prevent conflicts
+        (window as any).__stableProvider = selectedProvider;
+        console.log('🔧 Provider stored as stable reference');
+        return selectedProvider;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('❌ Provider conflict resolution failed:', error);
+      return null;
+    }
+  }
+
   // Detect all available wallets
   private detectWallets() {
     const wallets = [];
@@ -154,12 +199,16 @@ export class SimpleWalletService {
     try {
       console.log('🔧 Initializing wallet service...');
       
-      // Use the provider selected by ProductionWalletConnect
-      const selectedProvider = (window as any).__selectedProvider || window.ethereum;
+      // Resolve provider conflicts first
+      const selectedProvider = this.resolveProviderConflicts();
       
       if (!selectedProvider) {
         throw new Error('No wallet provider available.');
       }
+      
+      console.log('🔧 Using resolved provider:', selectedProvider);
+      console.log('🔧 Provider type:', typeof selectedProvider);
+      console.log('🔧 Provider methods:', Object.getOwnPropertyNames(selectedProvider));
       
       console.log('🔧 Creating ethers provider and signer...');
       

@@ -16,6 +16,7 @@ export function TaskManager() {
   // Use real contract - disable demo mode
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [receivedTasks, setReceivedTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -27,6 +28,7 @@ export function TaskManager() {
   const [taskCreationFee, setTaskCreationFee] = useState('0.0001');
   const [dueSoonCount, setDueSoonCount] = useState<number | null>(null);
   const [isRequestingDueSoon, setIsRequestingDueSoon] = useState(false);
+  const [activeTab, setActiveTab] = useState<'my-tasks' | 'received-tasks'>('my-tasks');
   
   // Get contract address from configuration
   const contractAddress = getContractAddress();
@@ -37,10 +39,12 @@ export function TaskManager() {
       if (simpleWalletService.isWalletConnected()) {
         console.log('Wallet connected, loading data...');
         loadTasks();
+        loadReceivedTasks();
         loadTaskCreationFee();
       } else {
         console.log('Wallet not connected, clearing tasks');
         setTasks([]);
+        setReceivedTasks([]);
       }
     };
     
@@ -122,6 +126,19 @@ export function TaskManager() {
     } catch (error) {
       console.error('Failed to load tasks:', error);
       setTasks([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadReceivedTasks = async () => {
+    setIsLoading(true);
+    try {
+      const fetchedReceivedTasks = await realContractService.getReceivedTasks();
+      setReceivedTasks(fetchedReceivedTasks);
+    } catch (error) {
+      console.error('Failed to load received tasks:', error);
+      setReceivedTasks([]);
     } finally {
       setIsLoading(false);
     }
@@ -235,6 +252,102 @@ export function TaskManager() {
       console.error('Failed to create task:', error);
       alert(`Failed to create task: ${error.message}`);
       throw error;
+    }
+  };
+
+  const handleCreateTaskWithText = async (taskData: Omit<Task, 'id' | 'createdAt'>) => {
+    try {
+      console.log('Creating text task with data:', taskData);
+      
+      // Demo mode - create task locally
+      if (isDemoMode) {
+        console.log('🎮 Demo mode: Creating text task locally');
+        const newTask: Task = {
+          ...taskData,
+          id: Date.now(), // Simple ID generation
+          createdAt: new Date().toISOString(),
+        };
+        
+        setTasks(prevTasks => [...prevTasks, newTask]);
+        setShowTaskForm(false);
+        console.log('✅ Demo text task created:', newTask);
+        return;
+      }
+      
+      console.log('FHEVM ready:', fhevmService.isReady());
+      
+      // Check if wallet is connected
+      if (!simpleWalletService.isWalletConnected()) {
+        throw new Error('Wallet not connected. Please connect your wallet first.');
+      }
+      
+      // Ensure contract service is initialized
+      if (!realContractService.isInitialized()) {
+        try {
+          await realContractService.initializeWithWallet(contractAddress);
+        } catch (error) {
+          console.error('Failed to initialize contract service:', error);
+          throw new Error('Contract service not available. Please ensure your wallet is connected.');
+        }
+      }
+      
+      // Create text task on blockchain
+      await realContractService.createTaskWithText(taskData);
+      console.log('✅ Text task created on blockchain');
+      
+      // Reload tasks to get the latest from blockchain
+      await loadTasks();
+      setShowTaskForm(false);
+    } catch (error) {
+      console.error('Failed to create text task:', error);
+    }
+  };
+
+  const handleCreateTaskWithNumbers = async (taskData: Omit<Task, 'id' | 'createdAt'> & { numericId: number }) => {
+    try {
+      console.log('Creating numeric task with data:', taskData);
+      
+      // Demo mode - create task locally
+      if (isDemoMode) {
+        console.log('🎮 Demo mode: Creating numeric task locally');
+        const newTask: Task = {
+          ...taskData,
+          id: Date.now(), // Simple ID generation
+          createdAt: new Date().toISOString(),
+        };
+        
+        setTasks(prevTasks => [...prevTasks, newTask]);
+        setShowTaskForm(false);
+        console.log('✅ Demo numeric task created:', newTask);
+        return;
+      }
+      
+      console.log('FHEVM ready:', fhevmService.isReady());
+      
+      // Check if wallet is connected
+      if (!simpleWalletService.isWalletConnected()) {
+        throw new Error('Wallet not connected. Please connect your wallet first.');
+      }
+      
+      // Ensure contract service is initialized
+      if (!realContractService.isInitialized()) {
+        try {
+          await realContractService.initializeWithWallet(contractAddress);
+        } catch (error) {
+          console.error('Failed to initialize contract service:', error);
+          throw new Error('Contract service not available. Please ensure your wallet is connected.');
+        }
+      }
+      
+      // Create numeric task on blockchain
+      await realContractService.createTaskWithNumbers(taskData);
+      console.log('✅ Numeric task created on blockchain');
+      
+      // Reload tasks to get the latest from blockchain
+      await loadTasks();
+      setShowTaskForm(false);
+    } catch (error) {
+      console.error('Failed to create numeric task:', error);
     }
   };
 
@@ -512,6 +625,36 @@ export function TaskManager() {
           </button>
         </div>
 
+        {/* Tab Navigation */}
+        <div className="flex space-x-1 bg-zama-gray-100 p-1 rounded-lg mb-4">
+          <button
+            onClick={() => setActiveTab('my-tasks')}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'my-tasks'
+                ? 'bg-white text-zama-gray-900 shadow-sm'
+                : 'text-zama-gray-600 hover:text-zama-gray-900'
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <Shield className="w-4 h-4" />
+              <span>My Tasks ({tasks.length})</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('received-tasks')}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'received-tasks'
+                ? 'bg-white text-zama-gray-900 shadow-sm'
+                : 'text-zama-gray-600 hover:text-zama-gray-900'
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <Users className="w-4 h-4" />
+              <span>Received ({receivedTasks.length})</span>
+            </div>
+          </button>
+        </div>
+
         {/* Quick Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
@@ -596,18 +739,41 @@ export function TaskManager() {
             </button>
           </div>
         ) : (
-          tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onComplete={() => handleCompleteTask(task.id)}
-              onEdit={() => setEditingTask(task)}
-              onDelete={() => handleDeleteTask(task.id)}
-              onShare={() => setSharingTask(task)}
-              onDecrypt={() => handleDecryptTask(task.id)}
-              isDecrypted={decryptedTasks.has(task.id)}
-            />
-          ))
+          <>
+            {activeTab === 'my-tasks' && tasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onComplete={() => handleCompleteTask(task.id)}
+                onEdit={() => setEditingTask(task)}
+                onDelete={() => handleDeleteTask(task.id)}
+                onShare={() => setSharingTask(task)}
+                onDecrypt={() => handleDecryptTask(task.id)}
+                isDecrypted={decryptedTasks.has(task.id)}
+              />
+            ))}
+            {activeTab === 'received-tasks' && receivedTasks.map((task) => (
+              <TaskCard
+                key={`received-${task.id}`}
+                task={task}
+                onComplete={() => handleCompleteTask(task.id)}
+                onEdit={() => setEditingTask(task)}
+                onDelete={() => handleDeleteTask(task.id)}
+                onShare={() => setSharingTask(task)}
+                onDecrypt={() => handleDecryptTask(task.id)}
+                isDecrypted={decryptedTasks.has(task.id)}
+              />
+            ))}
+            {activeTab === 'received-tasks' && receivedTasks.length === 0 && (
+              <div className="text-center py-12">
+                <Users className="w-12 h-12 text-zama-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-zama-gray-900 mb-2">No Received Tasks</h3>
+                <p className="text-zama-gray-600">
+                  Tasks shared with you will appear here. Ask someone to share a task with your wallet address!
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -615,9 +781,12 @@ export function TaskManager() {
       {showTaskForm && (
         <TaskForm
           onSubmit={handleCreateTask}
+          onSubmitText={handleCreateTaskWithText}
+          onSubmitNumbers={handleCreateTaskWithNumbers}
           onCancel={() => setShowTaskForm(false)}
           title="Create New Task"
           submitText="Create Task"
+          taskType="auto"
         />
       )}
 

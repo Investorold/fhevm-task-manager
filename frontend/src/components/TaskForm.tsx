@@ -5,17 +5,21 @@ import type { Task } from '../types';
 interface TaskFormProps {
   task?: Task | null;
   onSubmit: (taskData: Omit<Task, 'id' | 'createdAt'>) => Promise<void>;
+  onSubmitText?: (taskData: Omit<Task, 'id' | 'createdAt'>) => Promise<void>;
+  onSubmitNumbers?: (taskData: Omit<Task, 'id' | 'createdAt'> & { numericId: number }) => Promise<void>;
   onCancel: () => void;
   title: string;
   submitText: string;
+  taskType?: 'text' | 'numbers' | 'auto';
 }
 
-export function TaskForm({ task, onSubmit, onCancel, title, submitText }: TaskFormProps) {
+export function TaskForm({ task, onSubmit, onSubmitText, onSubmitNumbers, onCancel, title, submitText, taskType = 'auto' }: TaskFormProps) {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     dueDate: '',
     priority: 2, // Default to medium priority
+    numericId: 0, // For numeric tasks
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -51,7 +55,32 @@ export function TaskForm({ task, onSubmit, onCancel, title, submitText }: TaskFo
         status: task?.status || 'Pending',
       };
 
-      await onSubmit(taskData);
+      // Choose the appropriate submission method based on taskType
+      if (taskType === 'text' && onSubmitText) {
+        await onSubmitText(taskData);
+      } else if (taskType === 'numbers' && onSubmitNumbers) {
+        const numericTaskData = { ...taskData, numericId: formData.numericId };
+        await onSubmitNumbers(numericTaskData);
+      } else if (taskType === 'auto') {
+        // Auto-detect: if description is provided, use text; otherwise use numbers
+        if (formData.description && formData.description.trim() !== '') {
+          if (onSubmitText) {
+            await onSubmitText(taskData);
+          } else {
+            await onSubmit(taskData);
+          }
+        } else {
+          if (onSubmitNumbers) {
+            const numericTaskData = { ...taskData, numericId: formData.numericId };
+            await onSubmitNumbers(numericTaskData);
+          } else {
+            await onSubmit(taskData);
+          }
+        }
+      } else {
+        // Default to regular onSubmit
+        await onSubmit(taskData);
+      }
     } catch (error) {
       console.error('Form submission failed:', error);
     } finally {
@@ -134,6 +163,26 @@ export function TaskForm({ task, onSubmit, onCancel, title, submitText }: TaskFo
             </p>
           </div>
 
+          {/* Numeric ID (for numeric tasks) */}
+          {taskType === 'numbers' && (
+            <div>
+              <label className="block text-sm font-medium text-zama-gray-700 mb-2">
+                Numeric ID
+              </label>
+              <input
+                type="number"
+                value={formData.numericId}
+                onChange={(e) => handleChange('numericId', parseInt(e.target.value) || 0)}
+                className="input-field"
+                placeholder="Enter numeric ID..."
+                min="0"
+              />
+              <p className="text-xs text-zama-gray-500 mt-1">
+                🔒 Numeric ID for sorting/filtering
+              </p>
+            </div>
+          )}
+
           {/* Priority */}
           <div>
             <label className="block text-sm font-medium text-zama-gray-700 mb-2">
@@ -198,11 +247,24 @@ export function TaskForm({ task, onSubmit, onCancel, title, submitText }: TaskFo
                   ENCRYPTED
                 </span>
               </div>
+              {taskType === 'numbers' && (
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Numeric ID:</span>
+                  <span className="bg-zama-black text-zama-yellow px-2 py-1 rounded text-xs font-mono">
+                    ENCRYPTED
+                  </span>
+                </div>
+              )}
             </div>
             <div className="mt-3 pt-2 border-t border-zama-black border-opacity-20">
               <p className="text-xs font-medium">
                 ✅ All data will be encrypted using FHEVM before storage
               </p>
+              {taskType === 'auto' && (
+                <p className="text-xs font-medium mt-1">
+                  🤖 Auto-detection: Text tasks if description provided, otherwise numeric tasks
+                </p>
+              )}
             </div>
           </div>
 

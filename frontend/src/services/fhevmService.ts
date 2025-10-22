@@ -14,13 +14,15 @@ class FhevmService {
       // Wait for wallet to be ready
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Get the selected provider from the wallet service
-      const selectedProvider = (window as any).__selectedProvider || window.ethereum;
+      // Get the stable provider from the wallet service
+      const selectedProvider = (window as any).__stableProvider || (window as any).__selectedProvider || window.ethereum;
       if (!selectedProvider) {
         throw new Error('No Ethereum provider detected');
       }
 
-      console.log('🔧 Using provider:', selectedProvider);
+      console.log('🔧 Using stable provider for FHEVM:', selectedProvider);
+      console.log('🔧 Provider type:', typeof selectedProvider);
+      console.log('🔧 Provider isMetaMask:', selectedProvider.isMetaMask);
 
       // Try CDN first, then fallback to npm package
       let initSDK, createInstance, SepoliaConfig;
@@ -53,6 +55,17 @@ class FhevmService {
         network: selectedProvider,
       };
 
+      console.log('🔧 FHEVM Config details:', {
+        chainId: config.chainId,
+        gatewayChainId: config.gatewayChainId,
+        relayerUrl: config.relayerUrl,
+        aclContractAddress: config.aclContractAddress,
+        inputVerifierContractAddress: config.inputVerifierContractAddress,
+        kmsContractAddress: config.kmsContractAddress,
+        verifyingContractAddressDecryption: config.verifyingContractAddressDecryption,
+        verifyingContractAddressInputVerification: config.verifyingContractAddressInputVerification
+      });
+
       console.log('🔧 Creating FHEVM instance with Sepolia config:', {
         chainId: config.chainId,
         gatewayChainId: config.gatewayChainId,
@@ -66,6 +79,39 @@ class FhevmService {
       console.log('✅ Instance type:', typeof this.instance);
       console.log('🔍 Available methods:', Object.getOwnPropertyNames(this.instance));
       console.log('🔍 Instance prototype:', Object.getOwnPropertyNames(Object.getPrototypeOf(this.instance)));
+      
+      // Check what encryption methods are available
+      console.log('🔍 Encryption methods check:');
+      console.log('  - encrypt64:', !!this.instance.encrypt64);
+      console.log('  - encrypt32:', !!this.instance.encrypt32);
+      console.log('  - encrypt8:', !!this.instance.encrypt8);
+      console.log('  - encrypt:', !!this.instance.encrypt);
+      console.log('  - createEncryptedInput:', !!this.instance.createEncryptedInput);
+      
+      // Check if instance has contract-related methods
+      console.log('🔍 Contract-related methods:');
+      console.log('  - getContractAddress:', !!this.instance.getContractAddress);
+      console.log('  - getNetwork:', !!this.instance.getNetwork);
+      
+      // Try to get the network info
+      try {
+        if (this.instance.getNetwork) {
+          const network = await this.instance.getNetwork();
+          console.log('🔍 FHEVM Network:', network);
+        }
+      } catch (error) {
+        console.log('⚠️ Could not get network info:', error);
+      }
+      
+      // Check if there are any registered contracts
+      try {
+        if (this.instance.getRegisteredContracts) {
+          const contracts = await this.instance.getRegisteredContracts();
+          console.log('🔍 Registered contracts:', contracts);
+        }
+      } catch (error) {
+        console.log('⚠️ Could not get registered contracts:', error);
+      }
       
       // Test if we can get the public key
       try {
@@ -108,29 +154,38 @@ class FhevmService {
       // Use the appropriate encryption method based on what's available
       let encrypted;
       
-      // Try different encryption methods
-      if (this.instance.encrypt64) {
-        console.log('🔐 Using encrypt64 method');
-        encrypted = await this.instance.encrypt64(numericValue);
-      } else if (this.instance.encrypt) {
-        console.log('🔐 Using encrypt method');
-        encrypted = await this.instance.encrypt(numericValue, 'euint64');
-      } else if (this.instance.createEncryptedInput && contractAddress) {
-        console.log('🔐 Using createEncryptedInput method with contract address:', contractAddress);
-        console.log('🔐 Contract address validation:', {
-          address: contractAddress,
-          type: typeof contractAddress,
-          length: contractAddress?.length,
-          startsWith0x: contractAddress?.startsWith('0x'),
-          isValidFormat: /^0x[a-fA-F0-9]{40}$/.test(contractAddress)
-        });
+      // Use the correct FHEVM createEncryptedInput method
+      if (this.instance.createEncryptedInput && contractAddress) {
+        console.log('🔐 Using FHEVM createEncryptedInput buffer method');
+        console.log('🔐 Contract address:', contractAddress);
         
         // Validate contract address before using it
         if (!contractAddress || !/^0x[a-fA-F0-9]{40}$/.test(contractAddress)) {
           throw new Error(`Contract address is not a valid address: ${contractAddress}`);
         }
         
-        encrypted = await this.instance.createEncryptedInput(numericValue, 'euint64', contractAddress);
+        // Get user address from wallet
+        const userAddress = await this.getUserAddress();
+        console.log('🔐 User address:', userAddress);
+        
+        // Create buffer with correct signature: createEncryptedInput(contractAddress, userAddress)
+        const buffer = this.instance.createEncryptedInput(contractAddress, userAddress);
+        
+        // Add the value to the buffer
+        buffer.add64(BigInt(numericValue));
+        
+        // Encrypt and get ciphertexts
+        const ciphertexts = await buffer.encrypt();
+        console.log('🔐 Ciphertexts created:', ciphertexts);
+        
+        // Return the first handle (for single value)
+        encrypted = ciphertexts.handles[0];
+      } else if (this.instance.encrypt64) {
+        console.log('🔐 Fallback to encrypt64 method');
+        encrypted = await this.instance.encrypt64(numericValue);
+      } else if (this.instance.encrypt) {
+        console.log('🔐 Fallback to encrypt method');
+        encrypted = await this.instance.encrypt(numericValue, 'euint64');
       } else {
         throw new Error('No encryption methods available on FHEVM instance');
       }
@@ -151,30 +206,54 @@ class FhevmService {
     try {
       console.log(`🔐 Encrypting number ${value} as ${type}...`);
       
-      // Use the appropriate encryption method based on type and availability
+      // Use the correct FHEVM createEncryptedInput method for numbers
       let encrypted;
       
-      if (type === 'euint64' && this.instance.encrypt64) {
-        console.log('🔐 Using encrypt64 method');
-        encrypted = await this.instance.encrypt64(value);
-      } else if (type === 'euint32' && this.instance.encrypt32) {
-        console.log('🔐 Using encrypt32 method');
-        encrypted = await this.instance.encrypt32(value);
-      } else if (type === 'euint8' && this.instance.encrypt8) {
-        console.log('🔐 Using encrypt8 method');
-        encrypted = await this.instance.encrypt8(value);
-      } else if (this.instance.encrypt) {
-        console.log('🔐 Using encrypt method');
-        encrypted = await this.instance.encrypt(value, type);
-      } else if (this.instance.createEncryptedInput && contractAddress) {
-        console.log('🔐 Using createEncryptedInput method with contract address:', contractAddress);
+      if (this.instance.createEncryptedInput && contractAddress) {
+        console.log('🔐 Using FHEVM createEncryptedInput buffer method for number');
+        console.log('🔐 Contract address:', contractAddress);
         
         // Validate contract address before using it
         if (!contractAddress || !/^0x[a-fA-F0-9]{40}$/.test(contractAddress)) {
           throw new Error(`Contract address is not a valid address: ${contractAddress}`);
         }
         
-        encrypted = await this.instance.createEncryptedInput(value, type, contractAddress);
+        // Get user address from wallet
+        const userAddress = await this.getUserAddress();
+        console.log('🔐 User address:', userAddress);
+        
+        // Create buffer with correct signature: createEncryptedInput(contractAddress, userAddress)
+        const buffer = this.instance.createEncryptedInput(contractAddress, userAddress);
+        
+        // Add the value to the buffer based on type
+        if (type === 'euint64') {
+          buffer.add64(BigInt(value));
+        } else if (type === 'euint32') {
+          buffer.add32(BigInt(value));
+        } else if (type === 'euint8') {
+          buffer.add8(BigInt(value));
+        } else {
+          throw new Error(`Unsupported type: ${type}`);
+        }
+        
+        // Encrypt and get ciphertexts
+        const ciphertexts = await buffer.encrypt();
+        console.log('🔐 Ciphertexts created:', ciphertexts);
+        
+        // Return the first handle (for single value)
+        encrypted = ciphertexts.handles[0];
+      } else if (type === 'euint64' && this.instance.encrypt64) {
+        console.log('🔐 Fallback to encrypt64 method');
+        encrypted = await this.instance.encrypt64(value);
+      } else if (type === 'euint32' && this.instance.encrypt32) {
+        console.log('🔐 Fallback to encrypt32 method');
+        encrypted = await this.instance.encrypt32(value);
+      } else if (type === 'euint8' && this.instance.encrypt8) {
+        console.log('🔐 Fallback to encrypt8 method');
+        encrypted = await this.instance.encrypt8(value);
+      } else if (this.instance.encrypt) {
+        console.log('🔐 Fallback to encrypt method');
+        encrypted = await this.instance.encrypt(value, type);
       } else {
         throw new Error('No encryption methods available on FHEVM instance');
       }
@@ -253,6 +332,26 @@ class FhevmService {
       hash = hash & hash; // Convert to 32-bit integer
     }
     return Math.abs(hash);
+  }
+
+  // Helper function to get user address from wallet
+  private async getUserAddress(): Promise<string> {
+    try {
+      const selectedProvider = (window as any).__stableProvider || (window as any).__selectedProvider || window.ethereum;
+      if (!selectedProvider) {
+        throw new Error('No provider available');
+      }
+      
+      const accounts = await selectedProvider.request({ method: 'eth_accounts' });
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No accounts found');
+      }
+      
+      return accounts[0];
+    } catch (error) {
+      console.error('❌ Failed to get user address:', error);
+      throw new Error('Failed to get user address from wallet');
+    }
   }
 }
 

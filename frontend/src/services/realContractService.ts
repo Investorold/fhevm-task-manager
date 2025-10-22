@@ -8,11 +8,18 @@ import type { Task } from '../types';
 const TASK_MANAGER_ABI = [
   // Core task functions
   "function createTask(externalEuint64 encryptedTitle, externalEuint64 encryptedDueDate, externalEuint8 encryptedPriority, bytes calldata inputProof) external payable",
+  "function createTaskWithText(externalEuint64 encryptedTitle, externalEuint64 encryptedDescription, externalEuint64 encryptedDueDate, externalEuint8 encryptedPriority, bytes calldata inputProof) external payable",
+  "function createTaskWithNumbers(externalEuint64 encryptedTitle, externalEuint64 encryptedDueDate, externalEuint8 encryptedPriority, externalEuint64 encryptedNumericId, bytes calldata inputProof) external payable",
   "function getTasks(address user) external view returns (tuple(euint64 title, euint64 dueDate, euint8 priority, uint8 status)[] memory)",
   "function completeTask(uint256 taskIndex) external",
   "function deleteTask(uint256 taskIndex) external",
   "function editTask(uint256 taskIndex, externalEuint64 newEncryptedTitle, externalEuint64 newEncryptedDueDate, externalEuint8 newEncryptedPriority, bytes calldata inputProof) external",
   "function shareTask(uint256 taskIndex, address recipient) external",
+  
+  // NEW: Shared task functions
+  "function getSharedTasks(address user) external view returns (uint256[] memory)",
+  "function getSharedTaskCount(address user) external view returns (uint256)",
+  "function getTaskOwner(uint256 taskIndex) external view returns (address)",
   
   // NEW: Decryption functions
   "function requestTaskDecryption(uint256 taskIndex) external",
@@ -30,7 +37,8 @@ const TASK_MANAGER_ABI = [
   
   // Events
   "event DecryptionRequested(uint256 requestId, address indexed initiator)",
-  "event TaskDecrypted(uint256 indexed requestId, address indexed user, uint64 title, uint64 dueDate, uint8 priority)",
+  "event TaskDecrypted(uint256 indexed requestId, address indexed user, uint64 title, uint64 description, uint64 dueDate, uint8 priority, uint64 numericId)",
+  "event TaskShared(uint256 indexed taskIndex, address indexed owner, address indexed recipient)",
   "event Debug(string message, uint256 value)"
 ];
 
@@ -38,6 +46,7 @@ class RealContractService {
   private contract: ethers.Contract | null = null;
   private contractAddress = "";
   private isDemoMode = false; // Use real contract - we need FHEVM
+  // private eventListeners: Map<string, () => void> = new Map(); // Track active listeners
 
   async initialize(contractAddress: string): Promise<void> {
     console.log('🚀 Initializing RealContractService with address:', contractAddress);
@@ -88,6 +97,142 @@ class RealContractService {
     }
   }
 
+  async createTaskWithText(task: Omit<Task, 'id' | 'createdAt'>): Promise<void> {
+    console.log('🚀🚀🚀 createTaskWithText called with:', task);
+    console.log('🚀🚀🚀 Current contract address:', this.contractAddress);
+    
+    if (this.isDemoMode) {
+      console.log('Demo mode: Creating text task', task);
+      return;
+    }
+
+    if (!this.contract) {
+      console.error('❌ Contract not initialized');
+      throw new Error('Contract not initialized');
+    }
+
+    // FHEVM is now properly configured with SepoliaConfig
+    if (!fhevmService.isReady()) {
+      console.warn('⚠️ FHEVM not ready, initializing...');
+      await fhevmService.initialize();
+    }
+
+    try {
+      console.log('🔒 Preparing text task data for blockchain...');
+      
+      // Validate task data
+      const title = task.title || 'Untitled Task';
+      const description = task.description || 'No description';
+      const dueDate = task.dueDate || new Date().toISOString().split('T')[0];
+      const priority = task.priority ?? 1;
+      
+      console.log('📝 Text task data to encrypt:', { title, description, dueDate, priority });
+      
+      // Encrypt using REAL FHEVM
+      console.log('🔐 Encrypting text task data with FHEVM...');
+      
+      const encryptedTitle = await fhevmService.encryptString(title, this.contractAddress);
+      const encryptedDescription = await fhevmService.encryptString(description, this.contractAddress);
+      const dueDateTimestamp = Math.floor(new Date(dueDate).getTime() / 1000);
+      const encryptedDueDate = await fhevmService.encryptNumber(dueDateTimestamp, 'euint64', this.contractAddress);
+      const encryptedPriority = await fhevmService.encryptNumber(priority, 'euint8', this.contractAddress);
+      
+      console.log('✅ All text data encrypted successfully!');
+
+      console.log('💰 Getting task creation fee...');
+      const fee = await this.contract.taskCreationFee();
+      
+      console.log('📤 Sending encrypted text task to blockchain...');
+      
+      const tx = await this.contract.createTaskWithText(
+        encryptedTitle,         // Encrypted title
+        encryptedDescription,    // Encrypted description
+        encryptedDueDate,        // Encrypted due date
+        encryptedPriority,       // Encrypted priority
+        '0x',                    // Proof (FHEVM handles this internally)
+        { value: fee }
+      );
+
+      console.log('⏳ Waiting for transaction confirmation...');
+      const receipt = await tx.wait();
+      console.log('✅ Text task created on blockchain!');
+      console.log('📋 Transaction hash:', receipt.hash);
+      console.log('📋 Block number:', receipt.blockNumber);
+      
+    } catch (error) {
+      console.error('❌ Failed to create text task:', error);
+      throw new Error(`Failed to create text task on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async createTaskWithNumbers(task: Omit<Task, 'id' | 'createdAt'> & { numericId: number }): Promise<void> {
+    console.log('🚀🚀🚀 createTaskWithNumbers called with:', task);
+    console.log('🚀🚀🚀 Current contract address:', this.contractAddress);
+    
+    if (this.isDemoMode) {
+      console.log('Demo mode: Creating numeric task', task);
+      return;
+    }
+
+    if (!this.contract) {
+      console.error('❌ Contract not initialized');
+      throw new Error('Contract not initialized');
+    }
+
+    // FHEVM is now properly configured with SepoliaConfig
+    if (!fhevmService.isReady()) {
+      console.warn('⚠️ FHEVM not ready, initializing...');
+      await fhevmService.initialize();
+    }
+
+    try {
+      console.log('🔒 Preparing numeric task data for blockchain...');
+      
+      // Validate task data
+      const title = task.title || 'Untitled Task';
+      const dueDate = task.dueDate || new Date().toISOString().split('T')[0];
+      const priority = task.priority ?? 1;
+      const numericId = task.numericId ?? 0;
+      
+      console.log('📝 Numeric task data to encrypt:', { title, dueDate, priority, numericId });
+      
+      // Encrypt using REAL FHEVM
+      console.log('🔐 Encrypting numeric task data with FHEVM...');
+      
+      const encryptedTitle = await fhevmService.encryptString(title, this.contractAddress);
+      const dueDateTimestamp = Math.floor(new Date(dueDate).getTime() / 1000);
+      const encryptedDueDate = await fhevmService.encryptNumber(dueDateTimestamp, 'euint64', this.contractAddress);
+      const encryptedPriority = await fhevmService.encryptNumber(priority, 'euint8', this.contractAddress);
+      const encryptedNumericId = await fhevmService.encryptNumber(numericId, 'euint64', this.contractAddress);
+      
+      console.log('✅ All numeric data encrypted successfully!');
+
+      console.log('💰 Getting task creation fee...');
+      const fee = await this.contract.taskCreationFee();
+      
+      console.log('📤 Sending encrypted numeric task to blockchain...');
+      
+      const tx = await this.contract.createTaskWithNumbers(
+        encryptedTitle,         // Encrypted title
+        encryptedDueDate,       // Encrypted due date
+        encryptedPriority,      // Encrypted priority
+        encryptedNumericId,    // Encrypted numeric ID
+        '0x',                   // Proof (FHEVM handles this internally)
+        { value: fee }
+      );
+
+      console.log('⏳ Waiting for transaction confirmation...');
+      const receipt = await tx.wait();
+      console.log('✅ Numeric task created on blockchain!');
+      console.log('📋 Transaction hash:', receipt.hash);
+      console.log('📋 Block number:', receipt.blockNumber);
+      
+    } catch (error) {
+      console.error('❌ Failed to create numeric task:', error);
+      throw new Error(`Failed to create numeric task on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   async createTask(task: Omit<Task, 'id' | 'createdAt'>): Promise<void> {
     console.log('🚀🚀🚀 createTask called with:', task);
     console.log('🚀🚀🚀 Current contract address:', this.contractAddress);
@@ -99,6 +244,15 @@ class RealContractService {
       if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
         this.contractAddress = '0x30182D50035E926e5Ab728561070e1ba2c14B2A1';
         console.log('🔧 Set contract address to:', this.contractAddress);
+      }
+      
+      // Convert to checksummed address for better compatibility
+      try {
+        this.contractAddress = ethers.getAddress(this.contractAddress);
+        console.log('🔧 Checksummed contract address:', this.contractAddress);
+      } catch (error) {
+        console.error('❌ Invalid contract address:', this.contractAddress);
+        throw new Error('Invalid contract address format');
       }
       
       // Validate contract address format
@@ -162,6 +316,9 @@ class RealContractService {
         });
         throw new Error('Contract address is not set or invalid');
       }
+      
+      // Use contract address for proper on-chain encryption
+      console.log('🔐 Using contract address for on-chain encryption:', this.contractAddress);
       
       const encryptedTitle = await fhevmService.encryptString(title, this.contractAddress);
       const dueDateTimestamp = Math.floor(new Date(dueDate).getTime() / 1000);
@@ -537,6 +694,110 @@ class RealContractService {
     } catch (error) {
       console.error('❌ Failed to get due soon count:', error);
       throw new Error(`Failed to get due soon count: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getReceivedTasks(): Promise<Task[]> {
+    if (this.isDemoMode) {
+      // Return demo received tasks
+      return [
+        {
+          id: 1,
+          title: "Shared Task from Alice",
+          description: "This task was shared with you",
+          dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+          priority: 2,
+          status: 'Pending',
+          createdAt: new Date().toISOString(),
+          sharedBy: '0x1234567890123456789012345678901234567890'
+        }
+      ];
+    }
+
+    if (!this.contract) {
+      throw new Error('Contract not initialized');
+    }
+
+    const signer = simpleWalletService.getSigner();
+    if (!signer) {
+      throw new Error('Wallet not connected');
+    }
+
+    try {
+      const userAddress = await signer.getAddress();
+      console.log('📋 Fetching received tasks via event listening for address:', userAddress);
+      
+      // Try to listen for TaskDecrypted events where this user is the recipient
+      // This is a workaround since the contract doesn't have a direct way to get shared tasks
+      
+      try {
+        // Get recent blocks to search for events
+        const currentBlock = await this.contract.runner?.provider?.getBlockNumber();
+        if (!currentBlock) {
+          console.log('⚠️ Could not get current block number');
+          return [];
+        }
+        
+        // Search last 1000 blocks for TaskDecrypted events
+        const fromBlock = Math.max(0, currentBlock - 1000);
+        console.log(`🔍 Searching for TaskDecrypted events from block ${fromBlock} to ${currentBlock}`);
+        
+        // Listen for TaskDecrypted events where the user is the recipient
+        const filter = this.contract.filters.TaskDecrypted(null, userAddress);
+        const events = await this.contract.queryFilter(filter, fromBlock, currentBlock);
+        
+        console.log(`📋 Found ${events.length} TaskDecrypted events for user ${userAddress}`);
+        
+        // Convert events to Task objects
+        const receivedTasks: Task[] = events.map((event) => {
+          // Type guard to check if it's an EventLog with args
+          if ('args' in event && event.args) {
+            return {
+              id: Number(event.args.requestId) + 10000, // Offset to avoid conflicts with regular tasks
+              title: `Shared Task #${event.args.requestId}`,
+              description: `Task shared with you (Request ID: ${event.args.requestId})`,
+              dueDate: new Date(Number(event.args.dueDate) * 1000).toISOString(),
+              priority: Number(event.args.priority),
+              status: 'Pending' as const,
+              createdAt: new Date().toISOString(),
+              sharedBy: event.address // Contract address (we don't have the original owner)
+            } as Task;
+          }
+          return null;
+        }).filter((task): task is Task => task !== null);
+        
+        console.log(`✅ Converted ${receivedTasks.length} events to received tasks`);
+        return receivedTasks;
+        
+      } catch (eventError) {
+        console.warn('⚠️ Event listening failed, falling back to empty array:', eventError);
+        return [];
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to get received tasks:', error);
+      throw new Error(`Failed to retrieve received tasks: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async shareTaskWithUser(taskId: number, recipientAddress: string): Promise<void> {
+    if (this.isDemoMode) {
+      console.log('Demo mode: Sharing task', taskId, 'with', recipientAddress);
+      return;
+    }
+
+    if (!this.contract) {
+      throw new Error('Contract not initialized');
+    }
+
+    try {
+      console.log('🤝 Sharing task on blockchain...');
+      const tx = await this.contract.shareTask(taskId - 1, recipientAddress); // Convert to 0-based index
+      await tx.wait();
+      console.log('✅ Task shared on blockchain! Hash:', tx.hash);
+    } catch (error) {
+      console.error('❌ Failed to share task:', error);
+      throw new Error(`Failed to share task: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
