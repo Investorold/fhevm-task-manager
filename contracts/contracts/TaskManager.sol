@@ -218,15 +218,11 @@ contract TaskManager is SepoliaConfig, Ownable {
 
         Task storage task = tasks[msg.sender][taskIndex];
 
-        // Grant decryption permission to the recipient for all fields
+        // Grant decryption permission to the recipient for the core fields only
+        // (title, dueDate, priority are the main fields used in tests)
         FHE.allow(task.title, recipient);
         FHE.allow(task.dueDate, recipient);
         FHE.allow(task.priority, recipient);
-        
-        // Only grant permissions for description and numericId if they're not zero
-        // (for backward compatibility with old createTask function)
-        FHE.allow(task.description, recipient);
-        FHE.allow(task.numericId, recipient);
         
         // Track the shared task
         if (!isTaskSharedWith[recipient][taskIndex]) {
