@@ -8,12 +8,13 @@ import type { Task } from '../types';
 // ABI matching the actual deployed contract with correct FHEVM types
 const TASK_MANAGER_ABI = [
   // Core task functions with actual FHEVM types from deployed contract
-  "function createTask(tuple(address target, bytes4 selector) encryptedTitle, tuple(address target, bytes4 selector) encryptedDueDate, tuple(address target, bytes4 selector) encryptedPriority, bytes inputProof) external payable",
-  "function createTaskWithText(tuple(address target, bytes4 selector) encryptedTitle, tuple(address target, bytes4 selector) encryptedDescription, tuple(address target, bytes4 selector) encryptedDueDate, tuple(address target, bytes4 selector) encryptedPriority, bytes inputProof) external payable",
-  "function createTaskWithNumbers(tuple(address target, bytes4 selector) encryptedTitle, tuple(address target, bytes4 selector) encryptedDueDate, tuple(address target, bytes4 selector) encryptedPriority, tuple(address target, bytes4 selector) encryptedNumericId, bytes inputProof) external payable",
+  // Note: FHEVM handles are passed as bytes since ethers handles the encoding
+  "function createTask(bytes encryptedTitle, bytes encryptedDueDate, bytes encryptedPriority, bytes inputProof) external payable",
+  "function createTaskWithText(bytes encryptedTitle, bytes encryptedDescription, bytes encryptedDueDate, bytes encryptedPriority, bytes inputProof) external payable",
+  "function createTaskWithNumbers(bytes encryptedTitle, bytes encryptedDueDate, bytes encryptedPriority, bytes encryptedNumericId, bytes inputProof) external payable",
   "function completeTask(uint256 taskIndex) external",
   "function deleteTask(uint256 taskIndex) external",
-  "function editTask(uint256 taskIndex, tuple(address target, bytes4 selector) newEncryptedTitle, tuple(address target, bytes4 selector) newEncryptedDueDate, tuple(address target, bytes4 selector) newEncryptedPriority, bytes inputProof) external",
+  "function editTask(uint256 taskIndex, bytes newEncryptedTitle, bytes newEncryptedDueDate, bytes newEncryptedPriority, bytes inputProof) external",
   "function shareTask(uint256 taskIndex, address recipient) external",
   
   // Decryption functions
@@ -320,10 +321,11 @@ class RealContractService {
       }
       
       // Use ethers.js contract with the correct ABI
+      // combinedResult.handles is already in the correct format (tuple structure)
       const tx = await this.contract.createTask(
-        combinedResult.handles[0],    // Encrypted title as bytes32
-        combinedResult.handles[1],    // Encrypted due date as bytes32
-        combinedResult.handles[2],    // Encrypted priority as bytes32
+        combinedResult.handles[0],    // Encrypted title as tuple(address, bytes4)
+        combinedResult.handles[1],    // Encrypted due date as tuple(address, bytes4)
+        combinedResult.handles[2],    // Encrypted priority as tuple(address, bytes4)
         combinedResult.inputProof,    // Input proof as bytes
         { value: fee }
       );
