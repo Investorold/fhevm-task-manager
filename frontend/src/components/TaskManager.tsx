@@ -12,6 +12,7 @@ import { ShareModal } from './ShareModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { DecryptionModal } from './DecryptionModal';
 import { BulkDeleteModal } from './BulkDeleteModal';
+import { debugLocalStorage } from '../utils/debugLocalStorage';
 
 export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: boolean }) {
   // Use external demo mode if provided, otherwise default to false
@@ -111,6 +112,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
   const loadTasks = async () => {
     setIsLoading(true);
     try {
+      // DEBUG: Log localStorage contents FIRST
+      debugLocalStorage();
+      
       // ALWAYS load tasks from localStorage (for plain text tasks created without encryption)
       // Even in real blockchain mode, we need to show plain text tasks from localStorage
       console.log('📂 Loading tasks from localStorage (demo mode OR plain text tasks)');
@@ -1486,14 +1490,14 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           </div>
           
           {/* Wallet Actions */}
-          {simpleWalletService.isWalletConnected() && (
+              {simpleWalletService.isWalletConnected() && (
             <div className="flex items-center space-x-3">
               <div className="text-right">
                 <p className="text-sm text-zama-gray-600">
                   {simpleWalletService.getAddress()?.slice(0, 6)}...{simpleWalletService.getAddress()?.slice(-4)}
                 </p>
                 <p className="text-xs text-zama-gray-500">Connected</p>
-              </div>
+            </div>
               <button
                 onClick={disconnectWallet}
                 className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
@@ -1501,9 +1505,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
               >
                 Disconnect
               </button>
-            </div>
+          </div>
           )}
-          <button
+            <button
             onClick={() => setShowTaskForm(true)}
             className="btn-primary flex items-center space-x-2"
             disabled={!isDemoMode && !fhevmService.isReady()}
