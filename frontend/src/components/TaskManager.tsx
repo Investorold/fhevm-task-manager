@@ -984,10 +984,18 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         return;
       }
       
-      // Real blockchain mode - NO BLOCKCHAIN TRANSACTION FOR DELETION
-      // Deletion is LOCAL ONLY (removed from user's view)
-      // The blockchain data remains immutable per Zama's architecture
-      console.log('🗑️ Task deleted locally (no blockchain transaction needed for deletion)');
+      // Real blockchain mode - call blockchain to remove task from contract's array
+      if (!isDemoMode && realContractService.isInitialized()) {
+        try {
+          console.log('🗑️ Calling blockchain deleteTask for task ID:', deletingTask.id);
+          await realContractService.deleteTask(deletingTask.id);
+          console.log('✅ Task deleted from blockchain');
+        } catch (blockchainError) {
+          console.error('❌ Blockchain deletion failed:', blockchainError);
+          // Don't revert local changes - task is already removed from view
+          alert('Warning: Task removed from your view, but blockchain deletion failed. You may need to reload.');
+        }
+      }
       
       // Task successfully removed from view
       console.log('✅ Task removed from view successfully');
