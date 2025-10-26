@@ -204,6 +204,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           const task = plainTextStoredTasks[taskIdStr];
           const taskIdNum = parseInt(taskIdStr);
           
+          // CRITICAL: Check if task is plain text (shouldEncrypt === false)
+          const isPlainText = task.shouldEncrypt === false;
+          
           plainTextTasks.push({
             id: taskIdNum,
             title: task.title,
@@ -212,7 +215,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             priority: task.priority,
             status: task.status || 'Pending',
             createdAt: task.createdAt,
-            isEncrypted: task.shouldEncrypt !== false,
+            isEncrypted: !isPlainText, // FALSE if plain text, TRUE if encrypted
             isShared: false,
             shouldEncrypt: task.shouldEncrypt
           });
