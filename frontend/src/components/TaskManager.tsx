@@ -619,11 +619,21 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
         console.log('🔍 localStorage after storing:', JSON.parse(localStorage.getItem('userTaskData') || '{}'));
         
+        // CRITICAL: DO NOT mark encrypted tasks as decrypted by default
+        // They must be decrypted by the user first
+        // Also mark as decrypted immediately (no decryption needed for plain text)
+        // const decryptedTasks = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
+        // decryptedTasks.push(actualTaskIndex);
+        // localStorage.setItem('decryptedTasks', JSON.stringify(decryptedTasks));
+        // setDecryptedTasks(new Set(decryptedTasks));
+        
         // Add to local state with blockchain index as ID
         const newTask: Task = {
           ...taskData,
           id: actualTaskIndex, // Use blockchain index as ID
           createdAt: new Date().toISOString(),
+          isEncrypted: true, // CRITICAL: Mark as encrypted
+          shouldEncrypt: true
         };
         
         setTasks(prev => [...prev, newTask]);

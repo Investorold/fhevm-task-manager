@@ -125,14 +125,16 @@ export function TaskCard({
           <div className="flex items-center space-x-4 text-sm text-zama-gray-600 mb-3">
             <div className="flex items-center space-x-1">
               <Clock className="w-4 h-4" />
-              <span>Due: {(() => {
-                try {
-                  const date = new Date(task.dueDate);
-                  return isNaN(date.getTime()) ? 'Invalid Date' : format(date, 'MMM dd, yyyy');
-                } catch (error) {
-                  return 'Invalid Date';
-                }
-              })()}</span>
+              <span>
+                {(() => {
+                  try {
+                    const date = new Date(task.dueDate);
+                    return isNaN(date.getTime()) ? 'Invalid Date' : format(date, 'MMM dd, yyyy');
+                  } catch (error) {
+                    return 'Invalid Date';
+                  }
+                })()}
+              </span>
             </div>
             <div className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
               {getPriorityText(task.priority)} Priority
