@@ -367,6 +367,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           
           // Only load plain text tasks (shouldEncrypt=false)
           if (plainTextTask.shouldEncrypt === false) {
+            // CRITICAL: Plain text tasks should have isEncrypted = FALSE
             plainTextTasks.push({
               id: taskIdNum,
               title: plainTextTask.title,
@@ -375,7 +376,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
               priority: plainTextTask.priority,
               status: plainTextTask.status || 'Pending',
               createdAt: plainTextTask.createdAt,
-              isEncrypted: false,
+              isEncrypted: false, // Plain text tasks are NOT encrypted
               isShared: false,
               shouldEncrypt: false
             });
