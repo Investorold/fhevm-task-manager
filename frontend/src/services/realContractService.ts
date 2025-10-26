@@ -8,12 +8,12 @@ import type { Task } from '../types';
 // ABI matching the actual deployed contract with correct FHEVM types
 const TASK_MANAGER_ABI = [
   // Core task functions with actual FHEVM types from deployed contract
-  "function createTask(bytes32 encryptedTitle, bytes32 encryptedDueDate, bytes32 encryptedPriority, bytes inputProof) external payable",
-  "function createTaskWithText(bytes32 encryptedTitle, bytes32 encryptedDescription, bytes32 encryptedDueDate, bytes32 encryptedPriority, bytes inputProof) external payable",
-  "function createTaskWithNumbers(bytes32 encryptedTitle, bytes32 encryptedDueDate, bytes32 encryptedPriority, bytes32 encryptedNumericId, bytes inputProof) external payable",
+  "function createTask(tuple(address target, bytes4 selector) encryptedTitle, tuple(address target, bytes4 selector) encryptedDueDate, tuple(address target, bytes4 selector) encryptedPriority, bytes inputProof) external payable",
+  "function createTaskWithText(tuple(address target, bytes4 selector) encryptedTitle, tuple(address target, bytes4 selector) encryptedDescription, tuple(address target, bytes4 selector) encryptedDueDate, tuple(address target, bytes4 selector) encryptedPriority, bytes inputProof) external payable",
+  "function createTaskWithNumbers(tuple(address target, bytes4 selector) encryptedTitle, tuple(address target, bytes4 selector) encryptedDueDate, tuple(address target, bytes4 selector) encryptedPriority, tuple(address target, bytes4 selector) encryptedNumericId, bytes inputProof) external payable",
   "function completeTask(uint256 taskIndex) external",
   "function deleteTask(uint256 taskIndex) external",
-  "function editTask(uint256 taskIndex, bytes32 newEncryptedTitle, bytes32 newEncryptedDueDate, bytes32 newEncryptedPriority, bytes inputProof) external",
+  "function editTask(uint256 taskIndex, tuple(address target, bytes4 selector) newEncryptedTitle, tuple(address target, bytes4 selector) newEncryptedDueDate, tuple(address target, bytes4 selector) newEncryptedPriority, bytes inputProof) external",
   "function shareTask(uint256 taskIndex, address recipient) external",
   
   // Decryption functions
