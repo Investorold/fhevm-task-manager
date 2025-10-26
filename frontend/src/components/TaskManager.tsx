@@ -939,68 +939,89 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       // PROPER DELETE FLOW: Remove from your view immediately (no transaction needed)
       console.log('🗑️ Removing task from your view (irreversible)');
       
-      // Step 1: Remove from your view immediately
+      // CRITICAL: For encrypted tasks, wait for blockchain transaction BEFORE removing from UI
+      const taskToDelete = tasks.find(t => t.id === deletingTask.id);
+      
+      // Demo mode OR plain text task - delete immediately from localStorage
+      if (isDemoMode || (taskToDelete && !taskToDelete.isEncrypted)) {
+        console.log('🗑️ Demo/Plain text: Deleting immediately from localStorage');
+        
+        // Remove from ALL localStorage keys to ensure permanent deletion
+        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        delete storedTasks[deletingTask.id];
+        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+        
+        const decryptedTasksList = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
+        const filteredDecrypted = decryptedTasksList.filter((id: number) => id !== deletingTask.id);
+        localStorage.setItem('decryptedTasks', JSON.stringify(filteredDecrypted));
+        
+        setDecryptedTasks(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(deletingTask.id);
+          return newSet;
+        });
+        
+        const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
+        if (completedTasks[deletingTask.id]) {
+          delete completedTasks[deletingTask.id];
+          localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
+        }
+        
+        const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
+        deletedTasks[deletingTask.id] = 'DELETED';
+        localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
+        
+        // Now remove from UI AFTER localStorage is updated
         setTasks(prev => prev.filter(task => task.id !== deletingTask.id));
-      setReceivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
-      
-      // Step 2: Remove from ALL localStorage keys to ensure permanent deletion
-      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-      delete storedTasks[deletingTask.id];
-      localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-      console.log('🗑️ Task removed from userTaskData:', deletingTask.id);
-      
-      // Also remove from decryptedTasks list
-      const decryptedTasksList = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
-      const filteredDecrypted = decryptedTasksList.filter((id: number) => id !== deletingTask.id);
-      localStorage.setItem('decryptedTasks', JSON.stringify(filteredDecrypted));
-      console.log('🗑️ Task removed from decryptedTasks list');
-      
-      // Also remove from decryptedTasks state
-      setDecryptedTasks(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(deletingTask.id);
-        return newSet;
-      });
-      
-      // Remove from completedTasks if it exists
-      const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
-      if (completedTasks[deletingTask.id]) {
-        delete completedTasks[deletingTask.id];
-        localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
-        console.log('🗑️ Task removed from completedTasks');
-      }
-      
-      // Step 3: CRITICAL - Mark task as deleted with both the taskId (for demo mode) and index (for blockchain mode)
-      const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
-      // Mark with BOTH taskId (for demo mode) AND index if it's a blockchain task
-      deletedTasks[deletingTask.id] = 'DELETED'; // Simple string marker
-      localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
-      console.log('🗑️ Task marked as deleted in deletedTasks:', deletingTask.id);
-      
-      // Demo mode - already removed from local state above
-      if (isDemoMode) {
-        console.log('✅ Demo: Task deleted from local state');
+        setReceivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
+        
+        console.log('✅ Demo/Plain text: Task deleted from localStorage and UI');
         setDeletingTask(null);
         return;
       }
       
-      // Real blockchain mode - check if task is encrypted
-      const taskToDelete = tasks.find(t => t.id === deletingTask.id);
-      
-      // Only call blockchain for ENCRYPTED tasks (they're on-chain)
-      // Plain text tasks (shouldEncrypt=false) are only in localStorage
-      if (!isDemoMode && taskToDelete && taskToDelete.isEncrypted && realContractService.isInitialized()) {
+      // Encrypted task - WAIT for blockchain transaction BEFORE removing from UI
+      if (taskToDelete && taskToDelete.isEncrypted && realContractService.isInitialized()) {
         try {
-          console.log('🗑️ Encrypted task detected - calling blockchain deleteTask:', deletingTask.id);
+          console.log('🗑️ Encrypted task detected - calling blockchain deleteTask FIRST:', deletingTask.id);
           await realContractService.deleteTask(deletingTask.id);
           console.log('✅ Encrypted task deleted from blockchain');
+          
+          // NOW remove from localStorage after successful blockchain deletion
+          const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+          delete storedTasks[deletingTask.id];
+          localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+          
+          const decryptedTasksList = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
+          const filteredDecrypted = decryptedTasksList.filter((id: number) => id !== deletingTask.id);
+          localStorage.setItem('decryptedTasks', JSON.stringify(filteredDecrypted));
+          
+          setDecryptedTasks(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(deletingTask.id);
+            return newSet;
+          });
+          
+          const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
+          if (completedTasks[deletingTask.id]) {
+            delete completedTasks[deletingTask.id];
+            localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
+          }
+          
+          const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
+          deletedTasks[deletingTask.id] = 'DELETED';
+          localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
+          
+          // NOW remove from UI after successful blockchain transaction
+          setTasks(prev => prev.filter(task => task.id !== deletingTask.id));
+          setReceivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
+          
+          console.log('✅ Encrypted task: Deleted from blockchain, localStorage, and UI');
         } catch (blockchainError) {
           console.error('❌ Blockchain deletion failed:', blockchainError);
-          // Don't revert local changes - task is already removed from view
-          alert('Warning: Encrypted task removed from your view, but blockchain deletion failed. You may need to reload.');
+          // Transaction failed - DO NOT remove from UI
+          alert('❌ Deletion failed: Transaction was rejected or failed. Task remains in your list.');
         }
-      } else if (taskToDelete && !taskToDelete.isEncrypted) {
-        console.log('🗑️ Plain text task deleted locally (not on blockchain)');
       }
       
       // Task successfully removed from view
