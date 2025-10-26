@@ -1693,7 +1693,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
                 onDelete={() => handleDeleteTask(task.id)}
                 onShare={() => setSharingTask(task)}
                 onDecrypt={() => handleDecryptTask(task.id)}
-                isDecrypted={decryptedTasks.has(task.id)}
+                isDecrypted={task.isEncrypted === false || decryptedTasks.has(task.id)}
                 displayIndex={tasks.indexOf(task)}
                 isSelectionMode={isSelectionMode}
                 isSelected={selectedTasks.has(task.id)}
@@ -1708,7 +1708,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
                 onDelete={() => handleDeleteTask(task.id)}
                 onShare={() => setSharingTask(task)}
                 onDecrypt={() => handleDecryptTask(task.id)}
-                isDecrypted={decryptedTasks.has(task.id)}
+                isDecrypted={task.isEncrypted === false || decryptedTasks.has(task.id)}
                 displayIndex={receivedTasks.indexOf(task)}
                 isSelectionMode={isSelectionMode}
                 isSelected={selectedTasks.has(task.id)}
