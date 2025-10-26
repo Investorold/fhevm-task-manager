@@ -12,7 +12,7 @@ import { ShareModal } from './ShareModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { DecryptionModal } from './DecryptionModal';
 import { BulkDeleteModal } from './BulkDeleteModal';
-import { debugLocalStorage } from '../utils/debugLocalStorage';
+// import { debugLocalStorage } from '../utils/debugLocalStorage';
 
 export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: boolean }) {
   // Use external demo mode if provided, otherwise default to false
@@ -113,7 +113,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
     setIsLoading(true);
     try {
       // DEBUG: Log localStorage contents FIRST
-      debugLocalStorage();
+      // debugLocalStorage();
       
       // ALWAYS load tasks from localStorage (for plain text tasks created without encryption)
       // Even in real blockchain mode, we need to show plain text tasks from localStorage

@@ -25,9 +25,9 @@ export interface EncryptedTask {
 export interface WalletState {
   isConnected: boolean;
   address: string | null;
-  chainId: number | null;
-  isFhevmInitialized: boolean;
-  error: string | null;
+  chainId?: string | number | null;
+  isFhevmInitialized?: boolean;
+  error?: string | null;
 }
 
 export interface ContractConfig {
