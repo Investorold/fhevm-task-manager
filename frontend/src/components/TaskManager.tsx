@@ -322,16 +322,17 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             // Handle existing tasks gracefully - preserve encrypted state
             // These are existing blockchain tasks that don't have localStorage data
             // Show encrypted placeholders instead of hardcoded content
+            // SHOW PLACEHOLDER FOR ALL FIELDS including dueDate
             return {
               ...blockchainTask,
               id: index,
-              title: `******* ********`, // Encrypted placeholder - not hardcoded content
-              description: `******* ********`, // Encrypted placeholder - not hardcoded content
-              dueDate: `******* ********`, // Encrypted placeholder - not hardcoded date
-              priority: 1, // Will be decrypted when user clicks decrypt
+              title: `******* ********`, // Encrypted placeholder
+              description: `******* ********`, // Encrypted placeholder
+              dueDate: `******* ********`, // SHOW AS PLACEHOLDER (not Invalid Date)
+              priority: 1, // Will be shown as placeholder by TaskCard
               status: blockchainTask.status,
-              createdAt: `******* ********`, // Encrypted placeholder - not hardcoded date
-              isEncrypted: blockchainTask.isEncrypted,
+              createdAt: `******* ********`, // Encrypted placeholder
+              isEncrypted: true, // Ensure encrypted flag is set
               isShared: blockchainTask.isShared,
               isLegacy: true // Mark as legacy for identification
             };
