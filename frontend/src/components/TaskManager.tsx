@@ -984,17 +984,23 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         return;
       }
       
-      // Real blockchain mode - call blockchain to remove task from contract's array
-      if (!isDemoMode && realContractService.isInitialized()) {
+      // Real blockchain mode - check if task is encrypted
+      const taskToDelete = tasks.find(t => t.id === deletingTask.id);
+      
+      // Only call blockchain for ENCRYPTED tasks (they're on-chain)
+      // Plain text tasks (shouldEncrypt=false) are only in localStorage
+      if (!isDemoMode && taskToDelete && taskToDelete.isEncrypted && realContractService.isInitialized()) {
         try {
-          console.log('🗑️ Calling blockchain deleteTask for task ID:', deletingTask.id);
+          console.log('🗑️ Encrypted task detected - calling blockchain deleteTask:', deletingTask.id);
           await realContractService.deleteTask(deletingTask.id);
-          console.log('✅ Task deleted from blockchain');
+          console.log('✅ Encrypted task deleted from blockchain');
         } catch (blockchainError) {
           console.error('❌ Blockchain deletion failed:', blockchainError);
           // Don't revert local changes - task is already removed from view
-          alert('Warning: Task removed from your view, but blockchain deletion failed. You may need to reload.');
+          alert('Warning: Encrypted task removed from your view, but blockchain deletion failed. You may need to reload.');
         }
+      } else if (taskToDelete && !taskToDelete.isEncrypted) {
+        console.log('🗑️ Plain text task deleted locally (not on blockchain)');
       }
       
       // Task successfully removed from view
@@ -1100,30 +1106,27 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         return;
       }
       
-      // Real blockchain mode - remove tasks one by one
-      let successCount = 0;
-      let failureCount = 0;
-      
-      for (const taskId of selectedTaskIds) {
-        try {
-          await realContractService.deleteTask(taskId);
-          successCount++;
-          console.log(`✅ Task ${taskId} removed from blockchain list`);
-        } catch (error) {
-          failureCount++;
-          console.error(`❌ Failed to remove task ${taskId}:`, error);
-        }
-      }
-      
-      // Show results
-      if (failureCount > 0) {
-        alert(`⚠️ Removal Results:\n✅ ${successCount} tasks removed successfully\n❌ ${failureCount} tasks failed to remove\n\nFailed tasks have been restored to the list.`);
+      // Real blockchain mode - delete encrypted tasks from blockchain
+      // Plain text tasks are only in localStorage
+      if (!isDemoMode && realContractService.isInitialized()) {
+        let blockchainDeleteCount = 0;
         
-        // Reload tasks to restore failed removals
-        await loadTasks();
-        await loadReceivedTasks();
-      } else {
-        console.log(`✅ All ${successCount} tasks removed successfully from blockchain list`);
+        for (const taskId of selectedTaskIds) {
+          const taskToDelete = tasks.find(t => t.id === taskId);
+          
+          // Only call blockchain for ENCRYPTED tasks
+          if (taskToDelete && taskToDelete.isEncrypted) {
+            try {
+              await realContractService.deleteTask(taskId);
+              blockchainDeleteCount++;
+              console.log(`✅ Encrypted task ${taskId} deleted from blockchain`);
+            } catch (error) {
+              console.error(`❌ Failed to delete encrypted task ${taskId}:`, error);
+            }
+          }
+        }
+        
+        console.log(`✅ ${blockchainDeleteCount} encrypted tasks deleted from blockchain`);
       }
       
       // Clear selection and close modal
