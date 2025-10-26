@@ -8,13 +8,13 @@ import type { Task } from '../types';
 // ABI matching the actual deployed contract with correct FHEVM types
 const TASK_MANAGER_ABI = [
   // Core task functions with actual FHEVM types from deployed contract
-  // Note: FHEVM handles are passed as bytes since ethers handles the encoding
-  "function createTask(bytes encryptedTitle, bytes encryptedDueDate, bytes encryptedPriority, bytes inputProof) external payable",
-  "function createTaskWithText(bytes encryptedTitle, bytes encryptedDescription, bytes encryptedDueDate, bytes encryptedPriority, bytes inputProof) external payable",
-  "function createTaskWithNumbers(bytes encryptedTitle, bytes encryptedDueDate, bytes encryptedPriority, bytes encryptedNumericId, bytes inputProof) external payable",
+  // externalEuint64/8 is a tuple(address target, bytes4 selector) 
+  "function createTask((address,bytes4) encryptedTitle, (address,bytes4) encryptedDueDate, (address,bytes4) encryptedPriority, bytes inputProof) external payable",
+  "function createTaskWithText((address,bytes4) encryptedTitle, (address,bytes4) encryptedDescription, (address,bytes4) encryptedDueDate, (address,bytes4) encryptedPriority, bytes inputProof) external payable",
+  "function createTaskWithNumbers((address,bytes4) encryptedTitle, (address,bytes4) encryptedDueDate, (address,bytes4) encryptedPriority, (address,bytes4) encryptedNumericId, bytes inputProof) external payable",
   "function completeTask(uint256 taskIndex) external",
   "function deleteTask(uint256 taskIndex) external",
-  "function editTask(uint256 taskIndex, bytes newEncryptedTitle, bytes newEncryptedDueDate, bytes newEncryptedPriority, bytes inputProof) external",
+  "function editTask(uint256 taskIndex, (address,bytes4) newEncryptedTitle, (address,bytes4) newEncryptedDueDate, (address,bytes4) newEncryptedPriority, bytes inputProof) external",
   "function shareTask(uint256 taskIndex, address recipient) external",
   
   // Decryption functions
