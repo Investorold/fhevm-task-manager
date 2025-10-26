@@ -105,20 +105,20 @@ export function TaskCard({
               #{displayIndex !== undefined ? displayIndex + 1 : task.id + 1}
             </span>
               <h3 className="text-lg font-semibold text-zama-gray-900">
-                {isDecrypted ? task.title : getEncryptedDisplay('title')}
+                {task.isEncrypted && !isDecrypted ? getEncryptedDisplay('title') : task.title}
               </h3>
             </div>
             <div className="flex items-center space-x-1">
               <Shield className="w-4 h-4 text-zama-yellow" />
               <span className="text-xs text-zama-gray-500">
-                {isDecrypted ? 'Decrypted' : 'Encrypted'}
+                {task.isEncrypted && !isDecrypted ? 'Encrypted' : 'Decrypted'}
               </span>
             </div>
           </div>
 
           {task.description && (
             <p className="text-zama-gray-600 mb-3 line-clamp-2">
-              {isDecrypted ? task.description : getEncryptedDisplay('description')}
+              {task.isEncrypted && !isDecrypted ? getEncryptedDisplay('description') : task.description}
             </p>
           )}
 
