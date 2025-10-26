@@ -2,14 +2,17 @@
 // Update this file with your Termius-deployed contract address
 
 export const CONTRACT_CONFIG = {
-  // Updated Sepolia contract address (fresh deployment with hybrid functions)
-  TASK_MANAGER_ADDRESS: '0xFA2B7320aB62f13f9CfF671F160006dD1287839F',
+  // ✅ VERIFIED DEPLOYMENT - Sepolia Testnet (Chain ID: 11155111)
+  // 📍 Contract: 0xBd0EAE395C084154d159554287f1eAA89E700256
+  // 🔗 Etherscan: https://sepolia.etherscan.io/address/0xBd0EAE395C084154d159554287f1eAA89E700256#code
+  // ✅ Verified: Etherscan & Sourcify
+  TASK_MANAGER_ADDRESS: '0xBd0EAE395C084154d159554287f1eAA89E700256',
   
   // Network configuration
   NETWORK: {
     name: 'Sepolia', // Sepolia testnet
     chainId: 11155111, // Sepolia chain ID
-    rpcUrl: 'https://sepolia.infura.io/v3/YOUR_INFURA_KEY', // Sepolia RPC URL
+    rpcUrl: 'https://ethereum-sepolia.publicnode.com', // Sepolia RPC URL
   },
   
   // FHEVM Configuration for Sepolia

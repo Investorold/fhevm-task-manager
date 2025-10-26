@@ -419,9 +419,6 @@ class ProductionWalletService {
     try {
       console.log('🔧 Simple wallet connection...');
       
-      // Wait for wallet extensions to settle
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
       // Use window.ethereum directly (most common)
       if (!window.ethereum) {
         throw new Error('No Ethereum wallet detected. Please install MetaMask or another Web3 wallet.');
@@ -480,7 +477,7 @@ class ProductionWalletService {
             params: [{
               chainId: '0xaa36a7',
               chainName: 'Sepolia Test Network',
-              rpcUrls: ['https://sepolia.infura.io/v3/'],
+              rpcUrls: ['https://ethereum-sepolia.publicnode.com'],
               nativeCurrency: {
                 name: 'Sepolia Ether',
                 symbol: 'ETH',

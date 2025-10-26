@@ -85,22 +85,9 @@ class WalletService {
         throw new Error('No accounts found. Please create an account in MetaMask.');
       }
 
-      // Wait a moment for wallet conflicts to resolve
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Create provider and signer with retry
-      let retries = 3;
-      while (retries > 0) {
-        try {
-          this.provider = new ethers.BrowserProvider(window.ethereum);
-          this.signer = await this.provider.getSigner();
-          break;
-        } catch (error) {
-          retries--;
-          if (retries === 0) throw error;
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
+      // Create provider and signer
+      this.provider = new ethers.BrowserProvider(window.ethereum);
+      this.signer = await this.provider.getSigner();
 
       // Get network info
       const network = await this.provider.getNetwork();
@@ -143,7 +130,7 @@ class WalletService {
             {
               chainId: '0xaa36a7',
               chainName: 'Sepolia',
-              rpcUrls: ['https://sepolia.infura.io/v3/'],
+              rpcUrls: ['https://ethereum-sepolia.publicnode.com'],
               nativeCurrency: {
                 name: 'Sepolia Ether',
                 symbol: 'ETH',

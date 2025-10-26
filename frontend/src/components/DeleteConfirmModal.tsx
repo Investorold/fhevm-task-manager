@@ -35,16 +35,27 @@ export function DeleteConfirmModal({ isOpen, taskTitle, onConfirm, onCancel }: D
         {/* Content */}
         <div className="mb-6">
           <p className="text-zama-gray-700 mb-3">
-            Are you sure you want to delete this task?
+            Are you sure you want to <strong>REMOVE</strong> this task from your list?
           </p>
           <div className="bg-zama-gray-50 rounded-lg p-3 border-l-4 border-red-500">
             <p className="text-sm text-zama-gray-600 font-medium">
-              "{taskTitle}"
+              "******* ********"
+            </p>
+            <p className="text-xs text-zama-gray-500 mt-1">
+              (Encrypted task content)
             </p>
           </div>
-          <p className="text-sm text-red-600 mt-3">
-            ⚠️ This action cannot be undone. The task will be permanently removed from the blockchain.
-          </p>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-3">
+            <p className="text-sm text-yellow-800 font-semibold mb-2">
+              ⚠️ IMPORTANT: BLOCKCHAIN DATA PERSISTENCE ⚠️
+            </p>
+            <ul className="text-xs text-yellow-700 space-y-1">
+              <li>• Task will be <strong>REMOVED from your list</strong></li>
+              <li>• <strong>Data remains in blockchain history</strong> (immutable)</li>
+              <li>• Task cannot be <strong>recovered to your list</strong></li>
+              <li>• This action <strong>cannot be undone</strong> for your view</li>
+            </ul>
+          </div>
         </div>
 
         {/* Actions */}
@@ -60,7 +71,7 @@ export function DeleteConfirmModal({ isOpen, taskTitle, onConfirm, onCancel }: D
             className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
           >
             <Trash2 className="w-4 h-4" />
-            <span>Delete Task</span>
+            <span>REMOVE FROM LIST</span>
           </button>
         </div>
       </div>

@@ -16,7 +16,7 @@ export function QuickStart() {
       </div>
       
       <h2 className="text-3xl font-bold text-zama-black mb-3">
-        🔒 Confidential Task Manager
+        🔒 FHEVM Task Manager
       </h2>
       <p className="text-zama-black text-opacity-80 mb-8 text-lg">
         Connect to your deployed TaskManager contract on Sepolia testnet
@@ -32,7 +32,7 @@ export function QuickStart() {
           <span>🚀 Connect to Production Contract</span>
         </button>
         <p className="text-sm text-zama-black text-opacity-60 mt-2">
-          Contract: 0x30182D50035E926e5Ab728561070e1ba2c14B2A1
+          Contract: 0xBd0EAE395C084154d159554287f1eAA89E700256
         </p>
       </div>
 

@@ -113,8 +113,6 @@ contract TaskManager is SepoliaConfig, Ownable {
 
             emit Debug("Fee checked", 1);
 
-    
-
             // 1. Validate inputs
 
             euint64 title = FHE.fromExternal(encryptedTitle, inputProof);

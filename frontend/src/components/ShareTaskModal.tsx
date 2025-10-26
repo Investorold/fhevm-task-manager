@@ -60,10 +60,13 @@ export function ShareTaskModal({ isOpen, onClose, taskId, taskTitle, onShare }: 
 
         <div className="mb-4">
           <p className="text-sm text-zama-gray-600 mb-2">
-            Sharing task: <span className="font-medium">{taskTitle}</span>
+            Sharing task: <span className="font-medium">******* ********</span>
           </p>
           <p className="text-xs text-zama-gray-500">
-            The recipient will be able to decrypt and view this task. Only the specified wallet address can access it.
+            (Encrypted task content - recipient will be able to decrypt and view this task)
+          </p>
+          <p className="text-xs text-zama-gray-500 mt-1">
+            Only the specified wallet address can access it.
           </p>
         </div>
 

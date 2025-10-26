@@ -3,6 +3,8 @@ import { Shield } from 'lucide-react';
 import { ProductionWalletConnect } from './components/ProductionWalletConnect';
 import { TaskManager } from './components/TaskManager';
 import { Header } from './components/Header';
+import { Footer } from './components/Footer';
+import { NotificationContainer } from './components/NotificationContainer';
 import { realContractService } from './services/realContractService';
 import { simpleWalletService } from './services/simpleWalletService';
 import { fhevmService } from './services/fhevmService';
@@ -12,8 +14,9 @@ function App() {
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
   const [isInitializing, setIsInitializing] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(false);
   // Real deployed contract address from Termius
-  const [contractAddress, setContractAddress] = useState('0x30182D50035E926e5Ab728561070e1ba2c14B2A1');
+  const [contractAddress, setContractAddress] = useState('0xBd0EAE395C084154d159554287f1eAA89E700256');
 
   useEffect(() => {
     // Try to restore persisted wallet connection on page load
@@ -62,6 +65,17 @@ function App() {
     };
   }, []);
 
+  // Check for demo mode on page load
+  useEffect(() => {
+    const demoMode = localStorage.getItem('demoMode');
+    if (demoMode === 'true') {
+      console.log('🎮 Demo mode detected from localStorage');
+      setIsDemoMode(true);
+      // Clear the demo mode flag so it doesn't persist
+      localStorage.removeItem('demoMode');
+    }
+  }, []);
+
   // Initialize contract service and FHEVM when wallet connects
   useEffect(() => {
     console.log('🔍 useEffect triggered - walletConnected:', walletConnected);
@@ -70,11 +84,15 @@ function App() {
       console.log('🔍 Wallet address:', walletAddress);
       console.log('🔍 Contract address:', contractAddress);
       
-      // Add a small delay to ensure wallet is fully ready
+      // Add a small delay to ensure wallet is fully ready (reduced for faster UX)
       setTimeout(() => {
-        console.log('🚀 Initializing contract service after delay...');
-        realContractService.initialize(contractAddress);
-      }, 1000);
+        if (!isDemoMode) {
+          console.log('🚀 Initializing contract service after delay...');
+          realContractService.initialize(contractAddress);
+        } else {
+          console.log('🎮 Demo mode: Skipping wallet service initialization');
+        }
+      }, 500); // Reduced from 1000ms to 500ms
       
       // Initialize FHEVM in background
       const initFHEVM = async () => {
@@ -99,72 +117,20 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
-      <Header />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex flex-col">
+      <Header onDisconnect={handleDisconnect} />
       
-      <main className="container mx-auto px-4 py-8">
-        {!walletConnected ? (
+      <main className="container mx-auto px-4 py-8 flex-1">
+        {!walletConnected && !isDemoMode ? (
           <ProductionWalletConnect />
         ) : (
           <div className="space-y-8">
-            {/* Wallet Status */}
-            <div className="card max-w-2xl mx-auto">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-zama-gray-900">Wallet Connected</h2>
-                  <p className="text-sm text-zama-gray-600">
-                    {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
-                  </p>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 rounded-full bg-green-500" />
-                    <span className="text-sm text-zama-gray-600">
-                      Ready
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      simpleWalletService.disconnect();
-                      setWalletConnected(false);
-                      setWalletAddress('');
-                    }}
-                    className="btn-secondary text-sm"
-                  >
-                    Disconnect
-                  </button>
-                </div>
-              </div>
-            </div>
 
-            {/* User-Friendly Connection Status */}
-            <div className="card max-w-2xl mx-auto text-center">
-              <div className="flex items-center justify-center space-x-2 mb-4">
-                <Shield className="w-6 h-6 text-zama-yellow" />
-                <h3 className="text-lg font-semibold text-zama-gray-900">
-                  🔒 Connected to Secure Task Manager
-                </h3>
-              </div>
-              <p className="text-zama-gray-600 mb-4">
-                Experience the power of confidential task management with FHEVM encryption.
-                This demo shows how your tasks would be encrypted and stored securely!
-              </p>
-              <div className="bg-zama-gray-50 rounded-lg p-3">
-                <p className="text-sm text-zama-gray-500">
-                  🧪 Demo Mode: Simulated encrypted storage
-                </p>
-                <p className="text-sm text-zama-gray-500">
-                  ✅ Encryption: FHEVM mock protection
-                </p>
-                <p className="text-sm text-zama-gray-500">
-                  ✅ Privacy: Your data stays confidential
-                </p>
-              </div>
-            </div>
+            {/* Main Task Manager - No extra text needed */}
 
             {/* Task Manager */}
-            {walletConnected && (
-              <TaskManager />
+            {(walletConnected || isDemoMode) && (
+              <TaskManager externalDemoMode={isDemoMode} />
             )}
 
             {/* Loading State */}
@@ -177,6 +143,9 @@ function App() {
           </div>
         )}
       </main>
+      
+      <Footer />
+      <NotificationContainer />
     </div>
   );
 }

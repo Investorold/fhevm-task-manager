@@ -21,14 +21,22 @@ export function TaskForm({ task, onSubmit, onSubmitText, onSubmitNumbers, onCanc
     priority: 2, // Default to medium priority
     numericId: 0, // For numeric tasks
   });
+  const [shouldEncrypt, setShouldEncrypt] = useState(true); // Default to encrypted
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (task) {
       setFormData({
         title: task.title,
-        description: task.description,
-        dueDate: new Date(task.dueDate).toISOString().split('T')[0],
+        description: task.description || '',
+        dueDate: (() => {
+          try {
+            const date = new Date(task.dueDate);
+            return isNaN(date.getTime()) ? new Date().toISOString().split('T')[0] : date.toISOString().split('T')[0];
+          } catch {
+            return new Date().toISOString().split('T')[0];
+          }
+        })(),
         priority: task.priority,
       });
     } else {
@@ -50,37 +58,23 @@ export function TaskForm({ task, onSubmit, onSubmitText, onSubmitNumbers, onCanc
       const taskData: Omit<Task, 'id' | 'createdAt'> = {
         title: formData.title,
         description: formData.description,
-        dueDate: new Date(formData.dueDate).toISOString(),
+        dueDate: (() => {
+          try {
+            const date = new Date(formData.dueDate);
+            return isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+          } catch {
+            return new Date().toISOString();
+          }
+        })(),
         priority: formData.priority,
         status: task?.status || 'Pending',
+        shouldEncrypt: shouldEncrypt, // Pass encryption preference to handler
       };
 
-      // Choose the appropriate submission method based on taskType
-      if (taskType === 'text' && onSubmitText) {
-        await onSubmitText(taskData);
-      } else if (taskType === 'numbers' && onSubmitNumbers) {
-        const numericTaskData = { ...taskData, numericId: formData.numericId };
-        await onSubmitNumbers(numericTaskData);
-      } else if (taskType === 'auto') {
-        // Auto-detect: if description is provided, use text; otherwise use numbers
-        if (formData.description && formData.description.trim() !== '') {
-          if (onSubmitText) {
-            await onSubmitText(taskData);
-          } else {
-            await onSubmit(taskData);
-          }
-        } else {
-          if (onSubmitNumbers) {
-            const numericTaskData = { ...taskData, numericId: formData.numericId };
-            await onSubmitNumbers(numericTaskData);
-          } else {
-            await onSubmit(taskData);
-          }
-        }
-      } else {
-        // Default to regular onSubmit
-        await onSubmit(taskData);
-      }
+      // SIMPLIFIED: Always use the main onSubmit handler to prevent duplicate calls
+      // This ensures only ONE task creation call per form submission
+      console.log('📝 TaskForm: Submitting task with encryption preference:', shouldEncrypt);
+      await onSubmit(taskData);
     } catch (error) {
       console.error('Form submission failed:', error);
     } finally {
@@ -183,6 +177,28 @@ export function TaskForm({ task, onSubmit, onSubmitText, onSubmitNumbers, onCanc
             </div>
           )}
 
+          {/* Encryption Toggle */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={shouldEncrypt}
+                onChange={(e) => setShouldEncrypt(e.target.checked)}
+                className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <div>
+                <span className="text-sm font-medium text-blue-900">
+                  {shouldEncrypt ? '🔒 Encrypted Task' : '📝 Plain Text Task'}
+                </span>
+                <p className="text-xs text-blue-700 mt-1">
+                  {shouldEncrypt 
+                    ? 'Task will be encrypted with FHEVM for privacy' 
+                    : 'Task will be stored as plain text (no encryption)'}
+                </p>
+              </div>
+            </label>
+          </div>
+
           {/* Priority */}
           <div>
             <label className="block text-sm font-medium text-zama-gray-700 mb-2">
@@ -217,6 +233,7 @@ export function TaskForm({ task, onSubmit, onSubmitText, onSubmitNumbers, onCanc
           </div>
 
           {/* Encryption Preview */}
+          {shouldEncrypt && (
           <div className="bg-gradient-to-r from-zama-yellow to-zama-yellow-dark rounded-lg p-4 text-zama-black">
             <h4 className="text-sm font-bold mb-3 flex items-center">
               <Shield className="w-4 h-4 mr-2" />
@@ -267,6 +284,7 @@ export function TaskForm({ task, onSubmit, onSubmitText, onSubmitNumbers, onCanc
               )}
             </div>
           </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex space-x-3 pt-4">
@@ -286,12 +304,12 @@ export function TaskForm({ task, onSubmit, onSubmitText, onSubmitNumbers, onCanc
               {isSubmitting ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-zama-black"></div>
-                  <span>Encrypting...</span>
+                  <span>{shouldEncrypt ? 'Encrypting...' : 'Creating...'}</span>
                 </>
               ) : (
                 <>
                   <Shield className="w-4 h-4" />
-                  <span>{submitText}</span>
+                  <span>{shouldEncrypt ? submitText : 'Create Task'}</span>
                 </>
               )}
             </button>

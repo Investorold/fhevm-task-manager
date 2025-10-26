@@ -14,10 +14,16 @@ export class SimpleWalletService {
   // Provider conflict resolution
   private resolveProviderConflicts() {
     try {
-      // If we already have a stable provider, use it
+      // First, try to use the pre-resolved provider from the HTML script
       if ((window as any).__stableProvider) {
-        console.log('🔧 Using existing stable provider');
+        console.log('🔧 Using pre-resolved stable provider');
         return (window as any).__stableProvider;
+      }
+      
+      // If we already have a selected provider, use it
+      if ((window as any).__selectedProvider) {
+        console.log('🔧 Using existing selected provider');
+        return (window as any).__selectedProvider;
       }
 
       let selectedProvider = null;
@@ -45,6 +51,7 @@ export class SimpleWalletService {
       if (selectedProvider) {
         // Store the stable provider to prevent conflicts
         (window as any).__stableProvider = selectedProvider;
+        (window as any).__selectedProvider = selectedProvider;
         console.log('🔧 Provider stored as stable reference');
         return selectedProvider;
       }
@@ -171,7 +178,7 @@ export class SimpleWalletService {
       this.signer = await this.provider.getSigner();
       this.address = address;
       this.isConnected = true;
-      this.walletName = 'Connected Wallet';
+      this.walletName = 'MetaMask';
 
       console.log('✅ Wallet connection restored:', address);
       
@@ -224,7 +231,7 @@ export class SimpleWalletService {
       
       this.isConnected = true;
       this.address = address;
-      this.walletName = 'Connected Wallet';
+      this.walletName = 'MetaMask';
       
       // Save connection to localStorage
       this.saveConnection();
@@ -253,7 +260,7 @@ export class SimpleWalletService {
                     symbol: 'ETH',
                     decimals: 18
                   },
-                  rpcUrls: ['https://rpc.sepolia.org'],
+                  rpcUrls: ['https://ethereum-sepolia.publicnode.com'],
                   blockExplorerUrls: ['https://sepolia.etherscan.io']
                 }]
               });

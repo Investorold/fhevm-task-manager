@@ -22,7 +22,7 @@ const TASK_MANAGER_ABI = [
 
 class ContractService {
   private contract: ethers.Contract | null = null;
-  private contractAddress = "0x0000000000000000000000000000000000000000"; // Will be updated with deployed address
+  private contractAddress = "0xBd0EAE395C084154d159554287f1eAA89E700256"; // Verified Sepolia deployment
 
   async initialize(contractAddress: string): Promise<void> {
     this.contractAddress = contractAddress;
@@ -113,17 +113,12 @@ class ContractService {
             createdAt: new Date().toISOString(), // Not stored in contract
           });
         } catch (decryptError) {
-          console.warn(`Failed to decrypt task ${i}:`, decryptError);
-          // Add encrypted task placeholder
-          tasks.push({
-            id: i,
-            title: 'Encrypted Task',
-            description: 'This task is encrypted and cannot be decrypted',
-            dueDate: new Date().toISOString(),
-            priority: 1,
-            status: encryptedTask.status === 0 ? 'Pending' : 'Completed',
-            createdAt: new Date().toISOString(),
-          });
+          console.error(`🚨 CRITICAL DATA INTEGRITY VIOLATION: Failed to decrypt task ${i}:`, decryptError);
+          console.error('🚨 User data should NEVER be replaced with hardcoded placeholders');
+          
+          // CRITICAL: NEVER replace user data with hardcoded values!
+          // This violates data integrity and user trust
+          throw new Error(`CRITICAL DATA INTEGRITY ERROR: Task ${i} could not be decrypted and original data was not preserved. This violates the fundamental principle of data integrity. Your input should never be replaced with placeholder content.`);
         }
       }
 

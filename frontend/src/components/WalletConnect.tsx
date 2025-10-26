@@ -23,7 +23,7 @@ export function WalletConnect() {
       </div>
       
       <h2 className="text-3xl font-bold text-zama-black mb-3">
-        Confidential Task Manager
+        FHEVM Task Manager
       </h2>
       <p className="text-zama-black text-opacity-80 mb-8 text-lg">
         Secure your tasks with FHEVM encryption. Your data stays private while being stored on-chain.

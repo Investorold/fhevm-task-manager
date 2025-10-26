@@ -11,13 +11,89 @@ class FhevmService {
     try {
       console.log('🔒 Initializing FHEVM SDK from CDN...');
       
-      // Wait for wallet to be ready
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Get the stable provider from the wallet service with better conflict resolution
+      let selectedProvider = (window as any).__stableProvider || (window as any).__selectedProvider;
       
-      // Get the stable provider from the wallet service
-      const selectedProvider = (window as any).__stableProvider || (window as any).__selectedProvider || window.ethereum;
+      // If no stable provider, try to detect and resolve conflicts
       if (!selectedProvider) {
-        throw new Error('No Ethereum provider detected');
+        console.log('🔍 Detecting wallet provider conflicts...');
+        
+        // Check for multiple providers
+        if ((window as any).ethereum?.providers && (window as any).ethereum.providers.length > 1) {
+          console.log('⚠️ Multiple wallet providers detected:', (window as any).ethereum.providers.length);
+          
+          // Try to find MetaMask specifically
+          const metaMaskProvider = (window as any).ethereum.providers.find((p: any) => p.isMetaMask);
+          if (metaMaskProvider) {
+            selectedProvider = metaMaskProvider;
+            console.log('✅ Selected MetaMask provider from multiple providers');
+          } else {
+            // If no MetaMask found, use the first provider
+            selectedProvider = (window as any).ethereum.providers[0];
+            console.log('⚠️ MetaMask not found, using first available provider');
+          }
+        } else if (window.ethereum) {
+          // Single provider case
+          selectedProvider = window.ethereum;
+          console.log('✅ Single provider detected:', selectedProvider.isMetaMask ? 'MetaMask' : 'Other');
+        }
+      }
+      
+      // If no stable provider, try to get MetaMask specifically with better conflict handling
+      if (!selectedProvider) {
+        try {
+          // Try multiple detection methods to avoid provider conflicts
+          if (window.ethereum) {
+            // Method 1: Direct MetaMask detection
+            if (window.ethereum.isMetaMask) {
+              selectedProvider = window.ethereum;
+              console.log('✅ Found MetaMask directly');
+            } 
+            // Method 2: Multiple providers array
+            else if ((window as any).ethereum?.providers && Array.isArray((window as any).ethereum.providers)) {
+              const providers = (window as any).ethereum.providers;
+              console.log('🔍 Found multiple providers:', providers.length);
+              
+              // Prioritize MetaMask
+              const metaMaskProvider = providers.find((p: any) => p.isMetaMask);
+              if (metaMaskProvider) {
+                selectedProvider = metaMaskProvider;
+                console.log('✅ Selected MetaMask from providers array');
+              } else {
+                // Fallback to first provider
+                selectedProvider = providers[0];
+                console.log('⚠️ MetaMask not found, using first provider');
+              }
+            }
+            // Method 3: Check for provider properties
+            else if ((window as any).ethereum?.providers?.MetaMask) {
+              selectedProvider = (window as any).ethereum.providers.MetaMask;
+              console.log('✅ Found MetaMask in providers object');
+            }
+            // Method 4: Use window.ethereum as fallback
+            else {
+              selectedProvider = window.ethereum;
+              console.log('⚠️ Using window.ethereum as fallback');
+            }
+          }
+        } catch (error) {
+          console.warn('Provider conflict detected, using safe fallback:', error);
+          // Safe fallback - try to get any provider without setting properties
+          try {
+            selectedProvider = (window as any).ethereum || (window as any).web3?.currentProvider;
+          } catch (fallbackError) {
+            console.error('All provider detection methods failed:', fallbackError);
+          }
+        }
+      }
+      
+      // Fallback to any ethereum provider
+      if (!selectedProvider) {
+        selectedProvider = window.ethereum;
+      }
+      
+      if (!selectedProvider) {
+        throw new Error('No Ethereum provider detected. Please install MetaMask or another wallet extension.');
       }
 
       console.log('🔧 Using stable provider for FHEVM:', selectedProvider);
@@ -42,17 +118,24 @@ class FhevmService {
       await initSDK();
       console.log('✅ FHEVM SDK WASM loaded from CDN');
 
-      // Use our specific Sepolia configuration with correct contract addresses
+      // Production Sepolia configuration for real-world dApp
       const config = {
         chainId: 11155111, // Sepolia chain ID
         gatewayChainId: 55815,
         relayerUrl: 'https://relayer.testnet.zama.cloud',
+        // Updated contract addresses for production Sepolia
         aclContractAddress: '0x687820221192C5B662b25367F70076A37bc79b6c',
         inputVerifierContractAddress: '0xbc91f3daD1A5F19F8390c400196e58073B6a0BC4',
         kmsContractAddress: '0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC',
         verifyingContractAddressDecryption: '0xb6E160B1ff80D67Bfe90A85eE06Ce0A2613607D1',
         verifyingContractAddressInputVerification: '0x7048C39f048125eDa9d678AEbaDfB22F7900a29F',
         network: selectedProvider,
+        // Production settings
+        timeout: 60000, // 60 seconds for production
+        retries: 5, // More retries for production
+        // Add production-specific settings
+        enableLogging: true,
+        enableMetrics: true,
       };
 
       console.log('🔧 FHEVM Config details:', {
@@ -73,8 +156,56 @@ class FhevmService {
       });
 
       console.log('🔧 Creating FHEVM instance with config:', config);
-      this.instance = await createInstance(config);
-      console.log('✅ FHEVM instance created successfully!');
+      
+      // Verify user is connected to Sepolia testnet
+      if (selectedProvider && selectedProvider.chainId) {
+        const chainId = parseInt(selectedProvider.chainId);
+        if (chainId !== 11155111) {
+          throw new Error(`Please switch to Sepolia testnet (Chain ID: 11155111). Current network: ${chainId}`);
+        }
+        console.log('✅ Connected to Sepolia testnet');
+      }
+      
+      // Production retry logic with exponential backoff
+      let lastError: Error | null = null;
+      const maxRetries = 3;
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`🔄 FHEVM initialization attempt ${attempt}/${maxRetries}...`);
+          this.instance = await createInstance(config);
+          console.log('✅ FHEVM instance created successfully!');
+          break; // Success, exit retry loop
+        } catch (error) {
+          lastError = error as Error;
+          console.error(`❌ FHEVM instance creation attempt ${attempt} failed:`, error);
+          
+          if (attempt < maxRetries) {
+            const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s
+            console.log(`⏳ Waiting ${delay}ms before retry...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
+      }
+      
+      // If all attempts failed, try minimal fallback
+      if (!this.instance) {
+        console.log('🔄 All retries failed, trying minimal fallback configuration...');
+        const fallbackConfig = {
+          chainId: 11155111,
+          gatewayChainId: 55815,
+          relayerUrl: 'https://relayer.testnet.zama.cloud',
+          network: selectedProvider,
+        };
+        
+        try {
+          this.instance = await createInstance(fallbackConfig);
+          console.log('✅ FHEVM instance created with minimal fallback config!');
+        } catch (fallbackError) {
+          console.error('❌ Fallback FHEVM instance creation also failed:', fallbackError);
+          throw new Error(`FHEVM initialization failed after ${maxRetries} attempts: ${lastError?.message}. Please check your network connection and ensure you're connected to Sepolia testnet.`);
+        }
+      }
       console.log('✅ Public key available:', !!this.instance.getPublicKey);
       console.log('✅ Instance type:', typeof this.instance);
       console.log('🔍 Available methods:', Object.getOwnPropertyNames(this.instance));
@@ -337,7 +468,32 @@ class FhevmService {
   // Helper function to get user address from wallet
   private async getUserAddress(): Promise<string> {
     try {
-      const selectedProvider = (window as any).__stableProvider || (window as any).__selectedProvider || window.ethereum;
+      // Use the same provider resolution logic
+      let selectedProvider = (window as any).__stableProvider || (window as any).__selectedProvider;
+      
+      if (!selectedProvider) {
+        try {
+          if (window.ethereum) {
+            // Check if it's MetaMask directly
+            if (window.ethereum.isMetaMask) {
+              selectedProvider = window.ethereum;
+            } else if ((window as any).ethereum?.providers) {
+              // Multiple providers - find MetaMask
+              const providers = (window as any).ethereum.providers;
+              selectedProvider = providers.find((p: any) => p.isMetaMask);
+            }
+          }
+        } catch (error) {
+          console.warn('Provider conflict detected in getUserAddress, using fallback:', error);
+          // Use the first available provider as fallback
+          selectedProvider = window.ethereum;
+        }
+      }
+      
+      if (!selectedProvider) {
+        selectedProvider = window.ethereum;
+      }
+      
       if (!selectedProvider) {
         throw new Error('No provider available');
       }

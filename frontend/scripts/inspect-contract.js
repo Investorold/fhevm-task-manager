@@ -5,7 +5,7 @@ const { ethers } = require('ethers');
 const RPC_URL = 'https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161';
 
 // Contract address
-const CONTRACT_ADDRESS = '0x30182D50035E926e5Ab728561070e1ba2c14B2A1';
+const CONTRACT_ADDRESS = '0x9e5B4b2847c9DacfDA297d8CD67E16Fb06b8e40a';
 
 // Basic ABI with common methods
 const BASIC_ABI = [

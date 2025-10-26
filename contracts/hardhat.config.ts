@@ -33,6 +33,9 @@ const config: HardhatUserConfig = {
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY || "",
   },
+  sourcify: {
+    enabled: true
+  },
   gasReporter: {
     currency: "USD",
     enabled: process.env.REPORT_GAS ? true : false,
@@ -78,7 +81,7 @@ const config: HardhatUserConfig = {
         count: 10,
       },
       chainId: 11155111,
-      url: `https://sepolia.infura.io/v3/${INFURA_API_KEY}`,
+      url: "https://sepolia.drpc.org",
       fhevm: {
         relayerUrl: "https://relayer.testnet.zama.cloud",
         aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c",

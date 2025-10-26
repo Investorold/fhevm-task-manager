@@ -41,7 +41,10 @@ export function DecryptionModal({
           
           <div className="bg-zama-gray-50 rounded-lg p-3 border-l-4 border-zama-yellow">
             <p className="text-sm text-zama-gray-600 font-medium">
-              "{taskTitle}"
+              "******* ********"
+            </p>
+            <p className="text-xs text-zama-gray-500 mt-1">
+              (Encrypted content - will be revealed after decryption)
             </p>
           </div>
 
