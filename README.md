@@ -1,142 +1,175 @@
-# FHEVM Task Manager - Zama Bounty Submission
+# FHEVM Task Manager 🔐
 
-A complete end-to-end decentralized task manager application built for the Zama FHEVM bounty. Utilizes React + TypeScript for the frontend and Zama's FHEVM for confidential on-chain task management, ensuring privacy and security.
+A confidential task management dApp built with Zama FHEVM, leveraging fully homomorphic encryption to protect user data on-chain.
 
-## 🎯 **All 9 Use Cases Implemented & Working**
+## 🎯 Features
 
-### ✅ **Complete FHEVM Integration - READY FOR DEMO**
-1. **Create Task (Basic)** - ✅ Basic encrypted task creation
-2. **Create Task with Text** - ✅ Task with encrypted description  
-3. **Create Task with Numbers** - ✅ Task with encrypted numeric ID
-4. **Edit Task** - ✅ Update encrypted task details
-5. **Complete Task** - ✅ Mark tasks as completed
-6. **Delete Task** - ✅ Remove tasks from blockchain
-7. **Share Task** - ✅ Share encrypted tasks with other users
-8. **Decrypt Task** - ✅ Decrypt and view task data
-9. **Due Soon Count** - ✅ Count tasks due within timeframe
+- **Encrypted Task Management**: Create, decrypt, complete, and delete tasks with full confidentiality
+- **Zama FHEVM Integration**: Uses FHEVM for on-chain encryption and decryption
+- **Wallet Support**: Works with MetaMask, Trust Wallet, and other EVM-compatible wallets
+- **Task Sharing**: Share tasks with other users while maintaining privacy
+- **Bulk Operations**: Select and delete multiple tasks at once
+- **Demo Mode**: Test without connecting a wallet
+- **Data Integrity**: User input is preserved and never tampered with
+- **Sepolia Testnet**: Deployed and tested on Sepolia
 
-### 🔧 **Recent Fixes Applied**
-- **Contract ABI Compatibility**: Fixed frontend ABI to match deployed contract
-- **Encryption Functionality**: All 3 task creation methods working with FHEVM
-- **Decryption Functionality**: Event-based decryption with timeout handling
-- **Sharing Functionality**: Complete blockchain sharing implementation
-- **Error Handling**: Robust fallbacks and graceful degradation
+## 🚀 Quick Start
 
-### 🚀 **Production-Ready Features**
-- **Professional UI/UX** - Modern, responsive design
-- **Robust Error Handling** - Graceful fallbacks for all scenarios
-- **Wallet Integration** - Multi-wallet support with conflict resolution
-- **Mobile Responsive** - Works perfectly on all devices
-- **Demo Mode** - Local fallback when blockchain unavailable
-- **Real-time Updates** - Live task management
+### Prerequisites
 
-## 🏗️ **Architecture**
-
-### **Backend (Smart Contracts)**
-- `TaskManager.sol` - Main FHEVM contract with all 9 use cases
-- Deployed on Sepolia testnet
-- All tests passing ✅
-
-### **Frontend (React + TypeScript)**
-- Modern React 18 with TypeScript
-- Tailwind CSS for styling
-- Vite for fast development
-- Professional component architecture
-
-### **Services**
-- `realContractService.ts` - Blockchain interactions
-- `fhevmService.ts` - FHEVM encryption/decryption
-- `simpleWalletService.ts` - Wallet connection
-- `productionWalletService.ts` - Production wallet handling
-
-## 🚀 **Quick Start**
-
-### **Prerequisites**
-- Node.js 18+
+- Node.js 18+ and npm
 - MetaMask or compatible wallet
-- Sepolia ETH for gas fees
+- Sepolia testnet ETH (for gas fees)
 
-### **Installation**
+### Installation
+
 ```bash
-# Clone repository
-git clone <repository-url>
+# Clone the repository
+git clone <your-repo-url>
 cd fhevm-task-manager
 
 # Install dependencies
-cd frontend
 npm install
+cd contracts && npm install
+cd ../frontend && npm install
+```
 
-# Start development server
+### Running the Application
+
+#### Option 1: Demo Mode (No Wallet Required)
+
+```bash
+# Start frontend in demo mode
+cd frontend
 npm run dev
 ```
 
-### **Usage**
-1. Open http://localhost:3000
-2. Connect your wallet
-3. Create, manage, and share encrypted tasks
-4. Experience all 9 FHEVM use cases
+Visit `http://localhost:3000` and start creating tasks without connecting a wallet.
 
-## 📱 **Features**
+#### Option 2: Production Mode (Sepolia Testnet)
 
-### **Task Management**
-- Create tasks with encrypted data
-- Edit task details securely
-- Mark tasks as complete
-- Delete tasks permanently
-- Share tasks with other users
+1. **Deploy Contracts** (if not already deployed):
 
-### **Encryption & Privacy**
-- All task data encrypted with FHEVM
-- Decrypt tasks on-demand
-- Share encrypted data securely
-- Count tasks without revealing data
+```bash
+cd contracts
+npx hardhat deploy --network sepolia
+```
 
-### **User Experience**
-- Intuitive task management interface
-- Real-time updates
-- Professional error handling
-- Mobile-responsive design
-- Dark/light theme support
+2. **Start Frontend**:
 
-## 🔧 **Technical Details**
+```bash
+cd frontend
+npm run dev
+```
 
-### **FHEVM Integration**
-- Uses Zama's FHEVM SDK
-- Encrypts all sensitive data
-- Supports decryption requests
-- Implements permission system
+3. **Connect Your Wallet**:
+   - Click "Connect Wallet" in the app
+   - Ensure you're on Sepolia testnet
+   - Confirm the connection
 
-### **Smart Contract**
-- Solidity ^0.8.24
-- FHEVM library integration
-- Event-driven architecture
-- Gas-optimized functions
+4. **Create Encrypted Tasks**:
+   - Click "New Task"
+   - Toggle "Encrypt Task" ON
+   - Fill in details and create
 
-### **Frontend Stack**
-- React 18 + TypeScript
-- Tailwind CSS
-- Vite build system
-- Ethers.js for blockchain
+## 📁 Project Structure
 
-## 🎬 **Demo**
+```
+fhevm-task-manager/
+├── contracts/          # Smart contracts
+│   ├── contracts/      # Solidity files
+│   ├── deployments/    # Deployment configs
+│   └── test/           # Contract tests
+├── frontend/          # React + TypeScript frontend
+│   ├── src/
+│   │   ├── components/  # UI components
+│   │   ├── services/    # FHEVM & blockchain services
+│   │   └── types/       # TypeScript definitions
+│   └── public/
+└── README.md
+```
 
-See `DEMO_SCRIPT.md` for a complete demonstration of all 9 use cases.
+## 🔐 Contract Addresses
 
-## 📋 **Use Cases Documentation**
+### Sepolia Testnet
+- **TaskManager**: `0xBd0EAE395C084154d159554287f1eAA89E700256`
 
-See `INTEGRATION_GUIDE.md` for detailed technical documentation.
+## 🛠️ Troubleshooting
 
-## 🏆 **Zama Bounty Submission**
+### Common Issues
 
-This project demonstrates:
-- Complete FHEVM integration
-- Professional dApp development
-- Robust production features
-- Excellent user experience
-- Comprehensive error handling
+**1. "New Task" button not working**
+- Ensure FHEVM is initialized (check console logs)
+- Try refreshing the page
+- Check wallet connection status
 
-**Ready for Zama bounty submission!** 🎉
+**2. Tasks disappear after refresh**
+- Ensure data is being saved to localStorage
+- Check browser console for errors
+- Verify wallet is connected
 
-## 📄 **License**
+**3. Decryption not working**
+- Confirm wallet is connected
+- Check if transaction was signed
+- Wait for confirmation (sometimes takes 30-60 seconds)
 
-MIT License - see LICENSE file for details.
+**4. Multiple transactions for single task**
+- This should only happen once per encrypted task
+- If it happens repeatedly, check the FHEVM relayer status
+
+### Data Integrity Issues
+
+If you notice your task data changing unexpectedly:
+1. Check the browser console for errors
+2. Clear localStorage and start fresh
+3. Report the issue with console logs
+
+## 🧪 Testing
+
+```bash
+# Run contract tests
+cd contracts
+npx hardhat test
+
+# Run frontend tests (if configured)
+cd frontend
+npm test
+```
+
+## 📝 Documentation
+
+- [Deployment Guide](./DEPLOYMENT_GUIDE.md)
+- [Demo Mode Guide](./frontend/DEMO_MODE_GUIDE.md)
+- [Troubleshooting Guide](./frontend/TROUBLESHOOTING.md)
+- [Integration Guide](./INTEGRATION_GUIDE.md)
+
+## 🤝 Contributing
+
+This is a Zama Developer Program submission. Contributions are welcome!
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- [Zama](https://zama.ai/) for FHEVM technology
+- [OpenZeppelin](https://openzeppelin.com/) for secure contract patterns
+- Ethereum community
+
+## 📞 Support
+
+If you encounter issues or need help:
+1. Check the troubleshooting section
+2. Review console logs
+3. Open an issue on GitHub
+4. Contact the Zama Discord community
+
+---
+
+**Built with ❤️ for the Zama Developer Program**
