@@ -1,5 +1,5 @@
 // Unified task storage service - uses backend when available, falls back to localStorage
-import { backendService } from './backendService';
+// import { backendService } from './backendService';
 
 class TaskStorageService {
   private useBackend = false;
