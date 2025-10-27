@@ -7,6 +7,7 @@ export interface Task {
   status: 'Pending' | 'Completed';
   createdAt: string;
   sharedBy?: string; // Address of the user who shared this task
+  originalOwner?: string; // Address of the original owner (for shared tasks)
   blockchainIndex?: number; // Blockchain array index for decryption
   frontendId?: number; // Frontend timestamp ID for reference
   isEncrypted?: boolean; // Whether task is encrypted

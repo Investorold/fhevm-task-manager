@@ -19,6 +19,7 @@ const TASK_MANAGER_ABI = [
   
   // Decryption functions
   "function requestTaskDecryption(uint256 taskIndex) external",
+  "function requestSharedTaskDecryption(uint256 taskIndex, address originalOwner) external",
   "function taskDecryptionCallback(uint256 requestId, bytes memory cleartexts, bytes memory decryptionProof) external",
   
   // Fee and admin functions
@@ -192,7 +193,9 @@ class RealContractService {
               status: sharedTask.status === 0 ? 'Pending' : 'Completed',
               createdAt: new Date().toISOString(),
               isEncrypted: true,
-              isShared: true
+              isShared: true,
+              originalOwner: originalOwner, // Store original owner for decryption
+              sharedBy: originalOwner
             };
             
             receivedTasks.push(task);
@@ -216,7 +219,7 @@ class RealContractService {
   async createTask(task: Omit<Task, 'id' | 'createdAt'>): Promise<{ success: boolean; error?: string; taskId?: number }> {
       // Ensure we have a valid contract address
       if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0xBd0EAE395C084154d159554287f1eAA89E700256';
+      this.contractAddress = '0x2FF65Cf9F062272Fb85B4B1D0bA14ca623a09885';
     }
 
     console.log('🔍 Contract service state:', {
@@ -368,7 +371,7 @@ class RealContractService {
   async createTaskWithText(task: Omit<Task, 'id' | 'createdAt'>): Promise<{ success: boolean; error?: string; taskId?: number }> {
     // Ensure we have a valid contract address
     if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0xBd0EAE395C084154d159554287f1eAA89E700256';
+      this.contractAddress = '0x2FF65Cf9F062272Fb85B4B1D0bA14ca623a09885';
     }
 
     console.log('🔍 Contract service state:', {
@@ -539,7 +542,7 @@ class RealContractService {
   async createTaskWithNumbers(task: Omit<Task, 'id' | 'createdAt'> & { numericId: number }): Promise<{ success: boolean; error?: string; taskId?: number }> {
     // Ensure we have a valid contract address
     if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0xBd0EAE395C084154d159554287f1eAA89E700256';
+      this.contractAddress = '0x2FF65Cf9F062272Fb85B4B1D0bA14ca623a09885';
     }
 
     console.log('🔍 Contract service state:', {
@@ -700,9 +703,9 @@ class RealContractService {
     try {
       console.log('🔓 Starting simplified decryption for task ID:', taskId);
       
-      // Check if wallet is connected
-      const walletState = productionWalletService.getState();
-      if (!walletState.isConnected) {
+      // Check if wallet is connected using simple wallet service (more reliable)
+      const signer = simpleWalletService.getSigner();
+      if (!signer) {
         throw new Error('Wallet not connected. Please connect your wallet first.');
       }
       
@@ -713,11 +716,7 @@ class RealContractService {
       const taskIndex = taskId;
       console.log('🔓 Using task index for contract call:', taskIndex);
       
-      // First, let's check how many tasks actually exist in the contract
-      const signer = simpleWalletService.getSigner();
-      if (!signer) {
-        throw new Error('Wallet not connected');
-      }
+      // Get user address for decryption (signer already checked above)
       const userAddress = await signer.getAddress();
       const allTasks = await this.contract.getTasks(userAddress);
       console.log('🔍 Total tasks in contract:', allTasks.length);
@@ -809,6 +808,79 @@ class RealContractService {
       
     } catch (error) {
       console.error('❌ Failed to decrypt task:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  async decryptSharedTask(taskId: number, originalOwner: string): Promise<{ success: boolean; error?: string; decryptedData?: any }> {
+    if (this.isDemoMode) {
+      return { success: true, decryptedData: { title: 'Demo Shared Task', description: 'Demo Description' } };
+    }
+
+    if (!this.contract) {
+      throw new Error('Contract not initialized');
+    }
+
+    try {
+      console.log('🔓 Starting decryption for shared task ID:', taskId, 'original owner:', originalOwner);
+      
+      const signer = simpleWalletService.getSigner();
+      if (!signer) {
+        throw new Error('Wallet not connected. Please connect your wallet first.');
+      }
+      
+      console.log('✅ Wallet connected, proceeding with shared task decryption');
+      
+      const taskIndex = taskId;
+      
+      // Verify the contract method exists
+      if (!this.contract.requestSharedTaskDecryption) {
+        throw new Error('requestSharedTaskDecryption method not found on contract.');
+      }
+      
+      console.log('🔓 Calling requestSharedTaskDecryption with taskIndex:', taskIndex, 'originalOwner:', originalOwner);
+      
+      const tx = await this.contract.requestSharedTaskDecryption(taskIndex, originalOwner);
+      console.log('⏳ Shared task decryption request transaction sent:', tx.hash);
+      
+      // Wait for transaction confirmation
+      await Promise.race([
+        tx.wait(1),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Transaction timeout')), 30000)
+        )
+      ]);
+      
+      console.log('✅ Shared task decryption request confirmed');
+      
+      // Get stored data for shared tasks (stored under sender's index)
+      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+      const storedTask = storedTasks[taskIndex];
+      
+      if (storedTask) {
+        console.log('✅ Found stored shared task data');
+        return { 
+          success: true, 
+          decryptedData: { 
+            title: storedTask.title,
+            description: storedTask.description || 'No description',
+            dueDate: storedTask.dueDate,
+            priority: storedTask.priority,
+            transactionHash: tx.hash
+          } 
+        };
+      } else {
+        console.warn('⚠️ No stored data found for shared task');
+        return { 
+          success: true, // Still succeeded on blockchain
+          decryptedData: { 
+            note: 'Shared task decrypted - check blockchain for full details'
+          } 
+        };
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to decrypt shared task:', error);
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }

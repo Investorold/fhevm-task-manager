@@ -403,6 +403,37 @@ contract TaskManager is SepoliaConfig, Ownable {
     }
 
     /**
+     * @dev Requests decryption of a shared task (for recipients).
+     * This allows users to decrypt tasks that were shared with them.
+     * @param taskIndex The index of the task in the original owner's tasks array
+     * @param originalOwner The address of the task's original owner
+     */
+    function requestSharedTaskDecryption(uint256 taskIndex, address originalOwner) external {
+        // Check if this task was shared with the caller
+        require(isTaskSharedWith[msg.sender][taskIndex], "Task is not shared with you");
+        
+        // Verify the original owner has this task
+        require(taskIndex < tasks[originalOwner].length, "Task does not exist for owner");
+        
+        // Get the task from the original owner
+        Task storage task = tasks[originalOwner][taskIndex];
+        
+        // Create array of ciphertexts to decrypt
+        bytes32[] memory ciphertexts = new bytes32[](3);
+        ciphertexts[0] = FHE.toBytes32(task.title);
+        ciphertexts[1] = FHE.toBytes32(task.dueDate);
+        ciphertexts[2] = FHE.toBytes32(task.priority);
+        
+        // Request decryption
+        uint256 requestId = FHE.requestDecryption(ciphertexts, this.taskDecryptionCallback.selector);
+        
+        // Store the request initiator
+        requestInitiator[requestId] = msg.sender;
+        
+        emit DecryptionRequested(requestId, msg.sender);
+    }
+
+    /**
      * @dev Callback function called by the relayer after decryption.
      * This function receives the decrypted data and can process it.
      * @param requestId The ID of the decryption request

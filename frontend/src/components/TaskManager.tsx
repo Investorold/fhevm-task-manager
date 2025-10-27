@@ -82,29 +82,45 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
     // Initial load
     checkWallet();
     
-    // Load decrypted tasks from localStorage on mount to persist across refreshes
-    const savedDecryptedTasks = localStorage.getItem('decryptedTasks');
-    if (savedDecryptedTasks) {
-      try {
-        const taskIds = JSON.parse(savedDecryptedTasks);
-        setDecryptedTasks(new Set(taskIds));
-        console.log('✅ Loaded decrypted tasks from localStorage:', taskIds);
-      } catch (error) {
-        console.error('Failed to load decrypted tasks from localStorage:', error);
-    setDecryptedTasks(new Set());
+    // CRITICAL: Do NOT persist decryption state across refreshes
+    // Users must re-decrypt on each session for security
+    // const savedDecryptedTasks = localStorage.getItem('decryptedTasks');
+    // if (savedDecryptedTasks) {
+    //   try {
+    //     const taskIds = JSON.parse(savedDecryptedTasks);
+    //     setDecryptedTasks(new Set(taskIds));
+    //     console.log('✅ Loaded decrypted tasks from localStorage:', taskIds);
+    //   } catch (error) {
+    //     console.error('Failed to load decrypted tasks from localStorage:', error);
+    //     setDecryptedTasks(new Set());
+    //   }
+    // }
+    setDecryptedTasks(new Set()); // Start fresh on each page load
+    
+    // Clean up stale deletedTasks entries (old deleted indices messing up display)
+    try {
+      const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
+      const deletedCount = Object.keys(deletedTasks).length;
+      console.log('🧹 Current deletedTasks count:', deletedCount);
+      
+      // If too many entries marked as deleted, likely stale data - clear it
+      if (deletedCount > 3) {
+        console.log('🧹 Too many deleted tasks detected, clearing stale data...');
+        localStorage.setItem('deletedTasks', '{}');
       }
+    } catch (e) {
+      console.log('ℹ️ Could not check deletedTasks');
     }
     
-    // CRITICAL: Clear localStorage if switching from demo mode to real mode
-    // This prevents ghost tasks from appearing
-    const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-    const hasGhostTasks = Object.keys(storedTasks).length > 0;
-    
-    if (hasGhostTasks && !isDemoMode) {
-      console.log('🧹 Clearing localStorage to remove ghost tasks from demo mode');
-      localStorage.removeItem('userTaskData');
-      localStorage.removeItem('completedTasks');
-    }
+    // REMOVED: This was clearing localStorage on every page load!
+    // It was causing tasks to disappear after creation.
+    // const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+    // const hasGhostTasks = Object.keys(storedTasks).length > 0;
+    // if (hasGhostTasks && !isDemoMode) {
+    //   console.log('🧹 Clearing localStorage to remove ghost tasks from demo mode');
+    //   localStorage.removeItem('userTaskData');
+    //   localStorage.removeItem('completedTasks');
+    // }
     
     return () => {
       // Cleanup if needed
@@ -266,30 +282,37 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         console.log('🔍 Blockchain tasks count:', blockchainTasks.length);
         console.log('🔍 Deleted tasks:', Object.keys(deletedTasks));
         
-        // Get decrypted tasks list ONCE before mapping
-        const decryptedTasksList = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
-        console.log('🔍 Decrypted tasks:', decryptedTasksList);
+        // Get decrypted tasks list - only check in-memory state, not localStorage
+        // Decryption state should be session-only for security
+        const decryptedTasksList = Array.from(decryptedTasks);
+        console.log('🔍 Decrypted tasks in session:', decryptedTasksList);
         
-        const mergedTasks = blockchainTasks.filter((blockchainTask, index) => {
-          // CRITICAL: Skip tasks that were marked as deleted
-          // Check both if it's an object with .deleted or just truthy
+        // Track which indices are not deleted
+        const validIndices: number[] = [];
+        blockchainTasks.forEach((blockchainTask, index) => {
           const isDeleted = deletedTasks[index] === 'DELETED' || deletedTasks[index];
-          console.log(`🔍 Checking task index ${index}: isDeleted = ${isDeleted}, deletedTasks[index] =`, deletedTasks[index]);
-          if (isDeleted) {
+          // Only check if deleted if there's actually a task at this index on blockchain
+          if (!isDeleted && blockchainTask) {
+            validIndices.push(index);
+          } else if (isDeleted) {
             console.log('🗑️ Skipping deleted task at index:', index);
-            return false;
           }
-          return true;
-        }).map((blockchainTask, filteredIndex) => {
-          // Calculate the ACTUAL blockchain index (before filtering)
-          // We need to track which position this task has in the original blockchain array
-          const actualBlockchainIndex = blockchainTasks.indexOf(blockchainTask);
+        });
+        
+        // IMPORTANT: If localStorage has tasks but they don't exist on blockchain, 
+        // they were probably created locally but transaction failed
+        console.log('📊 Valid blockchain indices:', validIndices);
+        console.log('📊 Stored task indices:', Object.keys(storedTasks).map(Number));
+        
+        const mergedTasks = validIndices.map((actualBlockchainIndex) => {
+          const blockchainTask = blockchainTasks[actualBlockchainIndex];
           const storedTask = storedTasks[actualBlockchainIndex];
           
-          console.log(`🔍 Checking task blockchain index ${actualBlockchainIndex}:`, {
+          console.log(`🔍 Loading task at blockchain index ${actualBlockchainIndex}:`, {
             hasStoredTask: !!storedTask,
             storedTask: storedTask,
-            blockchainTask: blockchainTask
+            blockchainTask: blockchainTask,
+            allStoredTasks: Object.keys(storedTasks)
           });
           
           if (storedTask) {
@@ -647,7 +670,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           shouldEncrypt: true
         };
         localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-        console.log('✅ Task metadata saved to localStorage');
+        console.log('✅ Task metadata saved to localStorage at index:', actualTaskIndex);
+        console.log('✅ Stored data:', storedTasks[actualTaskIndex]);
+        console.log('✅ All stored tasks:', storedTasks);
         
         // CRITICAL: DO NOT mark encrypted tasks as decrypted by default
         // They must be decrypted by the user first
@@ -1085,7 +1110,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
   };
 
   const handleDecryptTask = async (taskId: number) => {
-    const task = tasks.find(t => t.id === taskId);
+    const task = tasks.find(t => t.id === taskId) || receivedTasks.find(t => t.id === taskId);
     if (task) {
       setDecryptingTask(task);
     }
@@ -1238,9 +1263,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           // Mark task as decrypted and persist to localStorage
           setDecryptedTasks(prev => {
             const newSet = new Set([...prev, decryptingTask.id]);
-            // Persist to localStorage so decryption survives page refresh
-            localStorage.setItem('decryptedTasks', JSON.stringify([...newSet]));
-            console.log('✅ Saved decrypted task to localStorage');
+            // DO NOT save to localStorage - decryption should be session-only for security
+            console.log('✅ Task decrypted in this session (will require re-decryption on refresh)');
             return newSet;
           });
           
@@ -1295,40 +1319,65 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         }
       }
       
+      // Check if this is a shared task
+      const isSharedTask = !!decryptingTask.originalOwner;
+      
       // Call real contract method to decrypt task
       console.log('🔓 Starting decryption for task ID:', decryptingTask.id);
       console.log('🔓 Task details:', {
         id: decryptingTask.id,
         title: decryptingTask.title,
-        isEncrypted: decryptingTask.isEncrypted
+        isEncrypted: decryptingTask.isEncrypted,
+        isShared: isSharedTask,
+        originalOwner: decryptingTask.originalOwner
       });
       
-      const result = await realContractService.decryptTask(decryptingTask.id);
+      // Use appropriate decryption method
+      const result = isSharedTask && decryptingTask.originalOwner
+        ? await realContractService.decryptSharedTask(decryptingTask.id, decryptingTask.originalOwner)
+        : await realContractService.decryptTask(decryptingTask.id);
+      
       console.log('🔓 Decryption result:', result);
       
       if (result.success) {
         // Mark task as decrypted and persist to localStorage
         setDecryptedTasks(prev => {
           const newSet = new Set([...prev, decryptingTask.id]);
-          // Persist to localStorage so decryption survives page refresh
-          localStorage.setItem('decryptedTasks', JSON.stringify([...newSet]));
-          console.log('✅ Saved decrypted task to localStorage');
+          // DO NOT save to localStorage - decryption should be session-only for security
+          console.log('✅ Task decrypted in this session (will require re-decryption on refresh)');
           return newSet;
         });
         
-        // Update the task with decrypted data if available
+        // Update the task with decrypted data if available (for both my tasks and received tasks)
         if (result.decryptedData) {
-          setTasks(prev => prev.map(task => 
-            task.id === decryptingTask.id 
-              ? { 
-                  ...task, 
-                  title: result.decryptedData.title,
-                  dueDate: result.decryptedData.dueDate,
-                  priority: result.decryptedData.priority
-                }
-              : task
-          ));
-          console.log('Task decrypted and updated with real data:', result.decryptedData);
+          // Check if task is in receivedTasks or my tasks
+          const isReceivedTask = receivedTasks.some(t => t.id === decryptingTask.id);
+          
+          if (isReceivedTask) {
+            setReceivedTasks(prev => prev.map(task => 
+              task.id === decryptingTask.id 
+                ? { 
+                    ...task, 
+                    title: result.decryptedData.title,
+                    dueDate: result.decryptedData.dueDate,
+                    priority: result.decryptedData.priority
+                  }
+                : task
+            ));
+            console.log('Received task decrypted and updated:', result.decryptedData);
+          } else {
+            setTasks(prev => prev.map(task => 
+              task.id === decryptingTask.id 
+                ? { 
+                    ...task, 
+                    title: result.decryptedData.title,
+                    dueDate: result.decryptedData.dueDate,
+                    priority: result.decryptedData.priority
+                  }
+                : task
+            ));
+            console.log('My task decrypted and updated:', result.decryptedData);
+          }
         } else {
           console.log('Task decrypted successfully via real contract:', decryptingTask.title);
         }
@@ -1587,8 +1636,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             <button
             onClick={() => setShowTaskForm(true)}
             className="btn-primary flex items-center space-x-2"
-            disabled={!isDemoMode && !fhevmService.isReady()}
-            title={(!isDemoMode && !fhevmService.isReady()) ? 'FHEVM not initialized' : 'Create new task'}
+            // Allow button to work even if FHEVM is still initializing
+            title="Create new task"
           >
             <Plus className="w-4 h-4" />
             <span>New Task</span>
