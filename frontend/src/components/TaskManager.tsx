@@ -266,6 +266,10 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         console.log('🔍 Blockchain tasks count:', blockchainTasks.length);
         console.log('🔍 Deleted tasks:', Object.keys(deletedTasks));
         
+        // Get decrypted tasks list ONCE before mapping
+        const decryptedTasksList = await taskStorage.getDecryptedTasks();
+        console.log('🔍 Decrypted tasks:', decryptedTasksList);
+        
         const mergedTasks = blockchainTasks.filter((blockchainTask, index) => {
           // CRITICAL: Skip tasks that were marked as deleted
           // Check both if it's an object with .deleted or just truthy
@@ -311,8 +315,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             };
             
             // Check if this task was decrypted before and restore that state
-            const decryptedTasks = await taskStorage.getDecryptedTasks();
-            if (decryptedTasks.includes(actualBlockchainIndex)) {
+            if (decryptedTasksList.includes(actualBlockchainIndex)) {
               // Task was decrypted, show the real data
               console.log('✅ Task', actualBlockchainIndex, 'was previously decrypted, showing real data');
               return task;
