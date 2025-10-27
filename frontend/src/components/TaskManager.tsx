@@ -256,8 +256,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         console.log('✅ Loaded tasks from blockchain:', blockchainTasks.length);
         console.log('📊 Blockchain task details:', blockchainTasks);
         
-        // Merge blockchain data with stored user data to preserve actual dates
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        // Merge blockchain data with stored user data (from backend or localStorage)
+        const storedTasks = await taskStorage.getTasks();
         const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
         const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
         
@@ -311,7 +311,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             };
             
             // Check if this task was decrypted before and restore that state
-            const decryptedTasks = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
+            const decryptedTasks = await taskStorage.getDecryptedTasks();
             if (decryptedTasks.includes(actualBlockchainIndex)) {
               // Task was decrypted, show the real data
               console.log('✅ Task', actualBlockchainIndex, 'was previously decrypted, showing real data');
@@ -343,11 +343,11 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           }
         });
         
-        // CRITICAL: Also load plain text tasks from localStorage (tasks created with shouldEncrypt=false)
+        // CRITICAL: Also load plain text tasks from storage (tasks created with shouldEncrypt=false)
         // These are plain text tasks that are NOT on the blockchain
-        console.log('🔍 Loading plain text tasks from localStorage...');
+        console.log('🔍 Loading plain text tasks from storage...');
         const plainTextTasks: Task[] = [];
-        const plainTextStoredTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        const plainTextStoredTasks = await taskStorage.getTasks();
         const plainTextDeletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
         
         Object.keys(plainTextStoredTasks).forEach((taskIdStr) => {
@@ -631,12 +631,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         console.log('🔍 Task created at blockchain index:', actualTaskIndex);
         
-        // Store user-entered data in localStorage using blockchain index as key
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-        
-        console.log('🔍 Storing user data with blockchain index:', actualTaskIndex);
-        console.log('🔍 Task data being stored:', taskData);
-        storedTasks[actualTaskIndex] = {
+        // Store user-entered data using taskStorage (backend or localStorage fallback)
+        const taskMetadata = {
           title: taskData.title,
           description: taskData.description,
           dueDate: taskData.dueDate,
@@ -645,8 +641,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           status: taskData.status,
           shouldEncrypt: true
         };
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-        console.log('🔍 localStorage after storing:', JSON.parse(localStorage.getItem('userTaskData') || '{}'));
+        
+        await taskStorage.saveTask(actualTaskIndex, taskMetadata);
+        console.log('✅ Task metadata saved to storage (backend or localStorage)');
         
         // CRITICAL: DO NOT mark encrypted tasks as decrypted by default
         // They must be decrypted by the user first

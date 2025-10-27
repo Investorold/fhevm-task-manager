@@ -127,8 +127,9 @@ export function TaskCard({
               <Clock className="w-4 h-4" />
               <span>
                 {(() => {
-                  // Check if this is an encrypted placeholder
-                  if (task.isEncrypted && !isDecrypted && (task.dueDate === '******* ********' || task.dueDate?.includes('*******'))) {
+                  // Due date and priority are ALWAYS visible (encrypted tasks store these in metadata)
+                  // Only check if it's actually a placeholder string
+                  if (task.dueDate === '******* ********' || task.dueDate?.includes('*******')) {
                     return 'Encrypted';
                   }
                   try {
