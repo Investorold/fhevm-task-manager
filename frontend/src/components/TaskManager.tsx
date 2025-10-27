@@ -5,6 +5,7 @@ import { fhevmService } from '../services/fhevmService';
 import { simpleWalletService } from '../services/simpleWalletService';
 import { productionWalletService } from '../services/productionWalletService';
 import { backendService } from '../services/backendService';
+import { taskStorage } from '../services/taskStorage';
 import { getContractAddress } from '../config/contract';
 import type { Task } from '../types';
 import { TaskForm } from './TaskForm';
