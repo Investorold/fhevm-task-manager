@@ -4,6 +4,7 @@ import { realContractService } from '../services/realContractService';
 import { fhevmService } from '../services/fhevmService';
 import { simpleWalletService } from '../services/simpleWalletService';
 import { productionWalletService } from '../services/productionWalletService';
+import { backendService } from '../services/backendService';
 import { getContractAddress } from '../config/contract';
 import type { Task } from '../types';
 import { TaskForm } from './TaskForm';
@@ -467,6 +468,18 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       setIsWalletConnected(true);
       setShowWalletConnect(false);
       console.log('✅ Wallet connected successfully');
+      
+      // Initialize backend service with user address
+      try {
+        const signer = simpleWalletService.getSigner();
+        if (signer) {
+          const address = await signer.getAddress();
+          backendService.setUserAddress(address);
+          console.log('✅ Backend service initialized for address:', address);
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not initialize backend service:', err);
+      }
       
       // Reload data after connection
       await loadTasks();
