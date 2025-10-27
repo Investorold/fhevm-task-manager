@@ -274,18 +274,20 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             return false;
           }
           return true;
-        }).map((blockchainTask, index) => {
-          // Direct lookup by blockchain index (much more reliable than timestamp matching)
-          const storedTask = storedTasks[index];
+        }).map((blockchainTask, filteredIndex) => {
+          // Calculate the ACTUAL blockchain index (before filtering)
+          // We need to track which position this task has in the original blockchain array
+          const actualBlockchainIndex = blockchainTasks.indexOf(blockchainTask);
+          const storedTask = storedTasks[actualBlockchainIndex];
           
-          console.log(`🔍 Checking task index ${index}:`, {
+          console.log(`🔍 Checking task blockchain index ${actualBlockchainIndex}:`, {
             hasStoredTask: !!storedTask,
             storedTask: storedTask,
             blockchainTask: blockchainTask
           });
           
           if (storedTask) {
-            console.log('✅ Found stored data for task index:', index, 'title:', storedTask.title);
+            console.log('✅ Found stored data for task blockchain index:', actualBlockchainIndex, 'title:', storedTask.title);
             
             // CRITICAL: Use localStorage status if available, otherwise use blockchain status
             const taskStatus = storedTask.status || blockchainTask.status;
@@ -293,7 +295,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             // Preserve user-entered data while keeping blockchain status
             const task: Task = {
               ...blockchainTask,
-              id: index, // Use blockchain array index for decryption compatibility
+              id: actualBlockchainIndex, // Use blockchain array index for decryption compatibility
               title: storedTask.title,
               description: storedTask.description,
               dueDate: storedTask.dueDate, // Keep actual date user entered
@@ -308,15 +310,15 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             
             // Check if this task was decrypted before and restore that state
             const decryptedTasks = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
-            if (decryptedTasks.includes(index)) {
+            if (decryptedTasks.includes(actualBlockchainIndex)) {
               // Task was decrypted, show the real data
-              console.log('✅ Task', index, 'was previously decrypted, showing real data');
+              console.log('✅ Task', actualBlockchainIndex, 'was previously decrypted, showing real data');
               return task;
             }
             
             return task;
           } else {
-            console.log('⚠️ No stored data found for task index:', index);
+            console.log('⚠️ No stored data found for task index:', actualBlockchainIndex);
             console.log('ℹ️ This is likely an existing task created before localStorage sync was implemented');
             
             // Handle existing tasks gracefully - preserve encrypted state
@@ -325,7 +327,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             // SHOW PLACEHOLDER FOR ALL FIELDS including dueDate
             return {
               ...blockchainTask,
-              id: index,
+              id: actualBlockchainIndex,
               title: `******* ********`, // Encrypted placeholder
               description: `******* ********`, // Encrypted placeholder
               dueDate: `******* ********`, // SHOW AS PLACEHOLDER (not Invalid Date)
