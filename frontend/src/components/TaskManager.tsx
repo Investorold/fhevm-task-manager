@@ -1257,8 +1257,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       console.log('Contract service address:', realContractService.getContractAddress());
       
       // Check if wallet is connected
-      const walletState = productionWalletService.getState();
-      if (!walletState.isConnected) {
+      // Check wallet connection using simple wallet service (more reliable)
+      const signer = simpleWalletService.getSigner();
+      if (!signer) {
         throw new Error('Wallet not connected. Please connect your wallet first.');
       }
       
