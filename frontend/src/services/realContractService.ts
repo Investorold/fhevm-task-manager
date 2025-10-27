@@ -9,12 +9,12 @@ import type { Task } from '../types';
 const TASK_MANAGER_ABI = [
   // Core task functions with actual FHEVM types from deployed contract
   // externalEuint64/8 is a tuple(address target, bytes4 selector) 
-  "function createTask((address,bytes4) encryptedTitle, (address,bytes4) encryptedDueDate, (address,bytes4) encryptedPriority, bytes inputProof) external payable",
-  "function createTaskWithText((address,bytes4) encryptedTitle, (address,bytes4) encryptedDescription, (address,bytes4) encryptedDueDate, (address,bytes4) encryptedPriority, bytes inputProof) external payable",
-  "function createTaskWithNumbers((address,bytes4) encryptedTitle, (address,bytes4) encryptedDueDate, (address,bytes4) encryptedPriority, (address,bytes4) encryptedNumericId, bytes inputProof) external payable",
+  "function createTask(tuple(address target,bytes4 selector) encryptedTitle, tuple(address target,bytes4 selector) encryptedDueDate, tuple(address target,bytes4 selector) encryptedPriority, bytes inputProof) external payable",
+  "function createTaskWithText(tuple(address target,bytes4 selector) encryptedTitle, tuple(address target,bytes4 selector) encryptedDescription, tuple(address target,bytes4 selector) encryptedDueDate, tuple(address target,bytes4 selector) encryptedPriority, bytes inputProof) external payable",
+  "function createTaskWithNumbers(tuple(address target,bytes4 selector) encryptedTitle, tuple(address target,bytes4 selector) encryptedDueDate, tuple(address target,bytes4 selector) encryptedPriority, tuple(address target,bytes4 selector) encryptedNumericId, bytes inputProof) external payable",
   "function completeTask(uint256 taskIndex) external",
   "function deleteTask(uint256 taskIndex) external",
-  "function editTask(uint256 taskIndex, (address,bytes4) newEncryptedTitle, (address,bytes4) newEncryptedDueDate, (address,bytes4) newEncryptedPriority, bytes inputProof) external",
+  "function editTask(uint256 taskIndex, tuple(address target,bytes4 selector) newEncryptedTitle, tuple(address target,bytes4 selector) newEncryptedDueDate, tuple(address target,bytes4 selector) newEncryptedPriority, bytes inputProof) external",
   "function shareTask(uint256 taskIndex, address recipient) external",
   
   // Decryption functions
@@ -321,12 +321,22 @@ class RealContractService {
       }
       
       // Use ethers.js contract with the correct ABI
-      // combinedResult.handles is already in the correct format (tuple structure)
+      // Convert handles to tuple format [target, selector] for ethers.js
+      const titleHandle = [combinedResult.handles[0].target, combinedResult.handles[0].selector];
+      const dueDateHandle = [combinedResult.handles[1].target, combinedResult.handles[1].selector];
+      const priorityHandle = [combinedResult.handles[2].target, combinedResult.handles[2].selector];
+      
+      console.log('🔍 Passing handles to contract:', {
+        title: titleHandle,
+        dueDate: dueDateHandle,
+        priority: priorityHandle
+      });
+      
       const tx = await this.contract.createTask(
-        combinedResult.handles[0],    // Encrypted title as tuple(address, bytes4)
-        combinedResult.handles[1],    // Encrypted due date as tuple(address, bytes4)
-        combinedResult.handles[2],    // Encrypted priority as tuple(address, bytes4)
-        combinedResult.inputProof,    // Input proof as bytes
+        titleHandle,
+        dueDateHandle,
+        priorityHandle,
+        combinedResult.inputProof,
         { value: fee }
       );
 
@@ -475,12 +485,25 @@ class RealContractService {
       console.log('🔍 Combined encrypted text input:', combinedResult);
       
       // Use ethers.js contract with the correct ABI for createTaskWithText
+      // Convert handles to tuple format [target, selector] for ethers.js
+      const titleHandle = [combinedResult.handles[0].target, combinedResult.handles[0].selector];
+      const descriptionHandle = [combinedResult.handles[1].target, combinedResult.handles[1].selector];
+      const dueDateHandle = [combinedResult.handles[2].target, combinedResult.handles[2].selector];
+      const priorityHandle = [combinedResult.handles[3].target, combinedResult.handles[3].selector];
+      
+      console.log('🔍 Passing text task handles to contract:', {
+        title: titleHandle,
+        description: descriptionHandle,
+        dueDate: dueDateHandle,
+        priority: priorityHandle
+      });
+      
       const tx = await this.contract.createTaskWithText(
-        combinedResult.handles[0],    // Encrypted title as bytes32
-        combinedResult.handles[1],    // Encrypted description as bytes32
-        combinedResult.handles[2],    // Encrypted due date as bytes32
-        combinedResult.handles[3],    // Encrypted priority as bytes32
-        combinedResult.inputProof,    // Input proof as bytes
+        titleHandle,
+        descriptionHandle,
+        dueDateHandle,
+        priorityHandle,
+        combinedResult.inputProof,
         { value: fee }
       );
 

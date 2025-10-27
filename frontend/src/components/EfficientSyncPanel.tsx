@@ -123,3 +123,4 @@ export function EfficientSyncPanel({ onSyncComplete }: EfficientSyncPanelProps) 
   );
 }
 
+
