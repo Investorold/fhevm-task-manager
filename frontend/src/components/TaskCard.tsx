@@ -127,6 +127,10 @@ export function TaskCard({
               <Clock className="w-4 h-4" />
               <span>
                 {(() => {
+                  // Check if this is an encrypted placeholder
+                  if (task.isEncrypted && !isDecrypted && (task.dueDate === '******* ********' || task.dueDate?.includes('*******'))) {
+                    return 'Encrypted';
+                  }
                   try {
                     const date = new Date(task.dueDate);
                     return isNaN(date.getTime()) ? 'Invalid Date' : format(date, 'MMM dd, yyyy');
