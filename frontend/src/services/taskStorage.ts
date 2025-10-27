@@ -12,74 +12,32 @@ class TaskStorageService {
   }
 
   async getTasks(): Promise<Record<string, any>> {
-    if (this.useBackend) {
-      try {
-        return await backendService.getTasks();
-      } catch (error) {
-        console.warn('Backend unavailable, falling back to localStorage:', error);
-        return this.getTasksFromLocalStorage();
-      }
-    }
+    // ALWAYS use localStorage for now
     return this.getTasksFromLocalStorage();
   }
 
   async saveTask(taskIndex: number, taskData: any): Promise<void> {
-    if (this.useBackend) {
-      try {
-        await backendService.saveTask(taskData, taskIndex);
-        return;
-      } catch (error) {
-        console.warn('Backend save failed, using localStorage:', error);
-      }
-    }
+    // ALWAYS use localStorage for now
     this.saveTaskToLocalStorage(taskIndex, taskData);
   }
 
   async updateTask(taskIndex: number, updates: any): Promise<void> {
-    if (this.useBackend) {
-      try {
-        await backendService.updateTask(taskIndex, updates);
-        return;
-      } catch (error) {
-        console.warn('Backend update failed, using localStorage:', error);
-      }
-    }
+    // ALWAYS use localStorage for now
     this.updateTaskInLocalStorage(taskIndex, updates);
   }
 
   async deleteTask(taskIndex: number): Promise<void> {
-    if (this.useBackend) {
-      try {
-        await backendService.deleteTask(taskIndex);
-        return;
-      } catch (error) {
-        console.warn('Backend delete failed, using localStorage:', error);
-      }
-    }
+    // ALWAYS use localStorage for now
     this.deleteTaskFromLocalStorage(taskIndex);
   }
 
   async getDecryptedTasks(): Promise<number[]> {
-    if (this.useBackend) {
-      try {
-        return await backendService.getDecryptedTasks();
-      } catch (error) {
-        console.warn('Backend unavailable, using localStorage:', error);
-        return this.getDecryptedTasksFromLocalStorage();
-      }
-    }
+    // ALWAYS use localStorage for now
     return this.getDecryptedTasksFromLocalStorage();
   }
 
   async saveDecryptedTasks(ids: number[]): Promise<void> {
-    if (this.useBackend) {
-      try {
-        await backendService.saveDecryptedTasks(ids);
-        return;
-      } catch (error) {
-        console.warn('Backend save failed, using localStorage:', error);
-      }
-    }
+    // ALWAYS use localStorage for now
     this.saveDecryptedTasksToLocalStorage(ids);
   }
 

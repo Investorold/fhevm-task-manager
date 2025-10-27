@@ -57,9 +57,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         console.log('🎮 Demo mode: Skipping wallet check, loading tasks directly');
         setIsWalletConnected(false);
         setShowWalletConnect(false);
-        loadTasks();
-        loadReceivedTasks();
-        loadTaskCreationFee();
+        loadTasks().catch(err => console.error('Error loading tasks:', err));
+        loadReceivedTasks().catch(err => console.error('Error loading received tasks:', err));
+        loadTaskCreationFee().catch(err => console.error('Error loading fee:', err));
         return;
       }
       
@@ -67,9 +67,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         console.log('Wallet connected, loading data...');
         setIsWalletConnected(true);
         setShowWalletConnect(false);
-        loadTasks();
-        loadReceivedTasks();
-        loadTaskCreationFee();
+        loadTasks().catch(err => console.error('Error loading tasks:', err));
+        loadReceivedTasks().catch(err => console.error('Error loading received tasks:', err));
+        loadTaskCreationFee().catch(err => console.error('Error loading fee:', err));
       } else {
         console.log('Wallet not connected, showing connection prompt');
         setIsWalletConnected(false);
