@@ -5,9 +5,10 @@ class TaskStorageService {
   private useBackend = false;
 
   constructor() {
-    // Check if backend URL is configured
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
-    this.useBackend = backendUrl !== '' && backendUrl !== 'undefined';
+    // TEMPORARILY DISABLED: Use localStorage only to prevent blank screen
+    // Will enable backend integration later when properly configured
+    this.useBackend = false;
+    console.log('🔧 TaskStorage using localStorage only (backend disabled for now)');
   }
 
   async getTasks(): Promise<Record<string, any>> {
