@@ -593,19 +593,25 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         }
       }
       
+      // Get tasks BEFORE creating to find the new index
+      const tasksBefore = await realContractService.getTasks();
+      const beforeCount = tasksBefore.length;
+      console.log('🔍 Tasks before creation:', beforeCount);
+      
       // Create task on blockchain
       const result = await realContractService.createTask(taskData);
       
       if (result.success) {
-        // CRITICAL FIX: Wait a moment for blockchain to confirm the transaction before fetching
-        // This ensures we get the correct task index
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+        // CRITICAL FIX: Wait for blockchain confirmation
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
         
-        // Get the actual task index from blockchain (should be the last task)
-        const blockchainTasks = await realContractService.getTasks();
-        const actualTaskIndex = blockchainTasks.length - 1; // Last task is the one we just created
+        // Get tasks AFTER creating
+        const tasksAfter = await realContractService.getTasks();
+        const afterCount = tasksAfter.length;
+        console.log('🔍 Tasks after creation:', afterCount);
         
-        console.log('🔍 Confirmed blockchain has', blockchainTasks.length, 'tasks, new task is at index', actualTaskIndex);
+        // The new task is at the index equal to beforeCount
+        const actualTaskIndex = beforeCount;
         
         console.log('🔍 Task created at blockchain index:', actualTaskIndex);
         
