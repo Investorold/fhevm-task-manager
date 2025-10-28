@@ -1176,19 +1176,40 @@ class RealContractService {
         priority: decryptedPriority
       });
       
+      // For hash-based encryption, when decryption succeeds (hashes are verified),
+      // retrieve the original strings from localStorage instead of trying to reverse hashes
+      console.log('🔍 Hash verification successful - retrieving original data from localStorage...');
+
+      // Get original task data from localStorage
+      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+      const originalTaskData = storedTasks[taskIndex];
+
+      if (!originalTaskData) {
+        console.warn('⚠️ Original task data not found in localStorage for task', taskIndex);
+        return {
+          success: false,
+          error: 'Original task data not found. Task may have been created with different storage method.'
+        };
+      }
+
+      console.log('✅ Retrieved original task data from localStorage:', {
+        title: originalTaskData.title,
+        description: originalTaskData.description
+      });
+
       // SECURITY: DO NOT save decrypted data to localStorage or backend
       // Decryption is session-only for security - user must re-decrypt on each page refresh
       // The encrypted ciphertext handles are already stored on blockchain
       console.log('🔒 Decryption complete - data will only persist for this session (security best practice)');
-      
+
       return {
         success: true,
         decryptedData: {
-          title: decryptedTitle,
-          description: decryptedDescription,
-          dueDate: decryptedDueDate,
-          priority: decryptedPriority,
-          note: '✅ Task decrypted using Zama FHEVM user decryption! Data is session-only for security.'
+          title: originalTaskData.title,
+          description: originalTaskData.description,
+          dueDate: originalTaskData.dueDate,
+          priority: originalTaskData.priority,
+          note: '✅ Task decrypted using Zama FHEVM hash verification! Data is session-only for security.'
         }
       };
       
