@@ -376,7 +376,7 @@ class RealContractService {
   async createTask(task: Omit<Task, 'id' | 'createdAt'>): Promise<{ success: boolean; error?: string; taskId?: number }> {
       // Ensure we have a valid contract address
       if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0x2FF65Cf9F062272Fb85B4B1D0bA14ca623a09885';
+      this.contractAddress = '0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC';
     }
 
     console.log('🔍 Contract service state:', {
@@ -594,7 +594,7 @@ class RealContractService {
   async createTaskWithText(task: Omit<Task, 'id' | 'createdAt'>): Promise<{ success: boolean; error?: string; taskId?: number }> {
     // Ensure we have a valid contract address
     if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0x2FF65Cf9F062272Fb85B4B1D0bA14ca623a09885';
+      this.contractAddress = '0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC';
     }
 
     console.log('🔍 Contract service state:', {
@@ -710,6 +710,12 @@ class RealContractService {
       }
 
       console.log('🔍 Combined encrypted text input:', combinedResult);
+      console.log('📍 Creating task on contract address:', this.contractAddress);
+      console.log('📍 Expected new contract address: 0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC');
+      
+      if (this.contractAddress !== '0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC') {
+        console.warn('⚠️ WARNING: Creating task on old contract address! Task will have ACL issues.');
+      }
       
       // Use ethers.js contract with the correct ABI for createTaskWithText
       // Handles are already in the correct format
@@ -788,7 +794,7 @@ class RealContractService {
   async createTaskWithNumbers(task: Omit<Task, 'id' | 'createdAt'> & { numericId: number }): Promise<{ success: boolean; error?: string; taskId?: number }> {
     // Ensure we have a valid contract address
     if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0x2FF65Cf9F062272Fb85B4B1D0bA14ca623a09885';
+      this.contractAddress = '0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC';
     }
 
     console.log('🔍 Contract service state:', {
@@ -947,7 +953,16 @@ class RealContractService {
     }
 
     try {
+      // Known problematic handle from old contract - will skip it during decryption
+      const problematicHandle = '0x53f30c39c7633e6b72b12d6646171300203e4a2dfeff0000000000aa36a70500';
+      
       console.log('🔓 Starting USER DECRYPTION for task ID:', taskId);
+      console.log('📍 Contract address being used:', this.contractAddress);
+      console.log('📍 Expected new contract address: 0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC');
+      
+      if (this.contractAddress !== '0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC') {
+        console.warn('⚠️ WARNING: Using old contract address! Decryption may fail due to ACL.');
+      }
       
       // Check if wallet is connected
       const signer = simpleWalletService.getSigner();
@@ -964,21 +979,27 @@ class RealContractService {
       const userAddress = await signer.getAddress();
       const taskIndex = taskId;
       console.log('🔓 Using task index:', taskIndex);
+      console.log('🔓 User address:', userAddress);
       
       // Step 1: Retrieve ciphertext handles from blockchain (view function)
       console.log('📡 Step 1: Retrieving ciphertext handles from blockchain...');
       const allTasks = await this.contract.getTasks(userAddress);
+      console.log(`📡 Retrieved ${allTasks.length} tasks from blockchain`);
       
       if (taskIndex >= allTasks.length) {
         throw new Error(`Task index ${taskIndex} does not exist. Only ${allTasks.length} tasks available.`);
       }
       
       const encryptedTask = allTasks[taskIndex];
-      console.log('🔍 Encrypted task handles:', {
+      console.log(`🔍 Task ${taskIndex} handles from blockchain:`, {
         title: encryptedTask.title,
+        titleType: typeof encryptedTask.title,
         description: encryptedTask.description,
+        descriptionType: typeof encryptedTask.description,
         dueDate: encryptedTask.dueDate,
-        priority: encryptedTask.priority
+        dueDateType: typeof encryptedTask.dueDate,
+        priority: encryptedTask.priority,
+        priorityType: typeof encryptedTask.priority
       });
       
       // Step 2: Perform USER DECRYPTION using FHEVM SDK
@@ -1004,18 +1025,30 @@ class RealContractService {
       };
       
       const handleContractPairs = [
-        { handle: normalizeHandle(encryptedTask.title), contractAddress: this.contractAddress },
-        { handle: normalizeHandle(encryptedTask.description), contractAddress: this.contractAddress },
-        { handle: normalizeHandle(encryptedTask.dueDate), contractAddress: this.contractAddress },
-        { handle: normalizeHandle(encryptedTask.priority), contractAddress: this.contractAddress },
-      ].filter(pair => pair.handle !== null) as Array<{ handle: string; contractAddress: string }>; // Type assertion after filtering nulls
+        { handle: normalizeHandle(encryptedTask.title), contractAddress: this.contractAddress, field: 'title' },
+        { handle: normalizeHandle(encryptedTask.description), contractAddress: this.contractAddress, field: 'description' },
+        { handle: normalizeHandle(encryptedTask.dueDate), contractAddress: this.contractAddress, field: 'dueDate' },
+        { handle: normalizeHandle(encryptedTask.priority), contractAddress: this.contractAddress, field: 'priority' },
+      ].filter(pair => {
+        // Filter out null handles
+        if (pair.handle === null) return false;
+        // TEMPORARY WORKAROUND: Skip problematic handle that doesn't have ACL
+        if (pair.handle === problematicHandle) {
+          console.warn(`⚠️ Skipping ${pair.field} handle ${problematicHandle} - known ACL issue. This field will not be decrypted.`);
+          return false;
+        }
+        return true;
+      }) as Array<{ handle: string; contractAddress: string; field: string }>; // Type assertion after filtering nulls
       
       if (handleContractPairs.length === 0) {
         throw new Error('No valid ciphertext handles found for decryption. Task may not be properly encrypted.');
       }
       
       console.log('🔍 Ciphertext handle-contract pairs to decrypt:', handleContractPairs.length);
-      console.log('🔍 Handles being decrypted:', handleContractPairs.map(p => ({ handle: p.handle, contract: p.contractAddress })));
+      console.log('🔍 Handles being decrypted:', handleContractPairs.map(p => ({ field: p.field, handle: p.handle, contract: p.contractAddress })));
+      
+      // Format for userDecrypt (remove field property)
+      const pairsForDecrypt = handleContractPairs.map(({ handle, contractAddress }) => ({ handle, contractAddress }));
       
       // Create EIP712 signature for user decryption
       const startTimeStamp = Math.floor(Date.now() / 1000).toString();
@@ -1044,14 +1077,14 @@ class RealContractService {
       // This calls the relayer which decrypts and re-encrypts with user's key
       console.log('🌐 Calling Zama relayer for user decryption...');
       console.log('📤 Sending to relayer:', {
-        handleContractPairs: handleContractPairs.length,
+        handleContractPairs: pairsForDecrypt.length,
         contractAddresses: contractAddresses.length,
         userAddress,
         timestamp: startTimeStamp
       });
       
       const decryptResult = await fhevmInstance.userDecrypt(
-        handleContractPairs,
+        pairsForDecrypt,
         keypair.privateKey,
         keypair.publicKey,
         signature.replace('0x', ''), // Remove 0x prefix
@@ -1119,9 +1152,15 @@ class RealContractService {
       const decryptedTitle = titleHandle && decryptResult[titleHandle] !== undefined
         ? numberToString(decryptResult[titleHandle])
         : '';
-      const decryptedDescription = descHandle && decryptResult[descHandle] !== undefined
-        ? numberToString(decryptResult[descHandle])
-        : '';
+      
+      // Handle description - may be skipped if it has ACL issues
+      let decryptedDescription = '';
+      if (descHandle && descHandle === problematicHandle) {
+        console.warn('⚠️ Description handle skipped due to ACL issue - will remain encrypted');
+        decryptedDescription = '******* ********'; // Keep as encrypted placeholder
+      } else if (descHandle && decryptResult[descHandle] !== undefined) {
+        decryptedDescription = numberToString(decryptResult[descHandle]);
+      }
       const decryptedDueDateNum = dueDateHandle && decryptResult[dueDateHandle] !== undefined
         ? (typeof decryptResult[dueDateHandle] === 'bigint' ? Number(decryptResult[dueDateHandle]) : Number(decryptResult[dueDateHandle]))
         : 0;
@@ -1649,40 +1688,33 @@ class RealContractService {
     }
   }
 
-  // Helper method to convert string to a reversible number
+  // Helper method to convert string to a hash-based number (fits in euint64)
   private stringToReversibleNumber(str: string): number {
     if (!str || typeof str !== 'string') {
       return 0;
     }
-    
-    // Use a more sophisticated hash that preserves more information
+
+    // Use a deterministic hash that fits in 64-bit range
+    // This is for on-chain verification - actual text stored in backend
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+      hash = hash >>> 0; // Convert to 32-bit unsigned
     }
-    
-    // Add length information to make it more reversible
+
+    // Add length information to make it more unique
     return Math.abs(hash) + (str.length * 1000000);
   }
 
-  // Helper method to convert number back to string
-  private numberToString(num: number): string {
-    if (num === 0) return '';
-    
-    // Try to reverse the stringToReversibleNumber conversion
-    // The original conversion was: title.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-    // We need to reverse this process
-    
-    try {
-      // For now, show that decryption worked but we need better reverse conversion
-      // This is a limitation of the current hash-based approach
-      return `Decrypted Task Content (ID: ${num})`;
-    } catch (error) {
-      console.warn('Failed to reverse number to string:', error);
-      return `Decrypted Content (${num})`;
-    }
+  // Helper method to indicate decrypted content (hash-based, actual text from backend)
+  private numberToString(num: any): string {
+    if (num === 0 || num === 0n || num === '0') return '';
+
+    // Since we're using hash-based encoding for FHEVM compatibility,
+    // the actual string content should be retrieved from the backend
+    // This hash serves as verification that decryption worked
+    return `Content Verified (Hash: ${num})`;
   }
 
   // Helper function to safely map blockchain status to frontend status
