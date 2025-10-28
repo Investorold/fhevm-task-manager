@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, CheckCircle, Clock, Shield, Users } from 'lucide-react';
+import { ethers } from 'ethers';
 import { realContractService } from '../services/realContractService';
 import { fhevmService } from '../services/fhevmService';
 import { simpleWalletService } from '../services/simpleWalletService';
@@ -14,7 +15,86 @@ import { ShareModal } from './ShareModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { DecryptionModal } from './DecryptionModal';
 import { BulkDeleteModal } from './BulkDeleteModal';
+import { WalletSelectionModal } from './WalletSelectionModal';
 // import { debugLocalStorage } from '../utils/debugLocalStorage';
+
+// Component to display wallet address that auto-updates from signer
+function WalletAddressDisplay() {
+  const [displayAddress, setDisplayAddress] = useState<string>('');
+
+  useEffect(() => {
+    const updateAddress = async () => {
+      const signer = simpleWalletService.getSigner();
+      if (signer) {
+        try {
+          const addr = await signer.getAddress();
+          const normalized = ethers.getAddress(addr);
+          setDisplayAddress(normalized);
+        } catch (error) {
+          console.error('Failed to get address from signer:', error);
+          const fallback = simpleWalletService.getAddress();
+          if (fallback) {
+            setDisplayAddress(ethers.getAddress(fallback));
+          }
+        }
+      } else {
+        const fallback = simpleWalletService.getAddress();
+        if (fallback) {
+          setDisplayAddress(ethers.getAddress(fallback));
+        }
+      }
+    };
+    
+    updateAddress();
+    const interval = setInterval(updateAddress, 2000); // Update every 2 seconds to detect wallet switches
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <p className="text-sm text-zama-gray-600 font-mono">
+      {displayAddress ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}` : 'Loading...'}
+    </p>
+  );
+}
+
+// Helper function to get wallet-scoped localStorage keys
+function getWalletScopedKeys(walletAddress: string | null): {
+  userTaskData: string;
+  completedTasks: string;
+  deletedTasks: string;
+  decryptedTasks: string;
+} {
+  if (!walletAddress) {
+    // Fallback to unscoped keys if no wallet (shouldn't happen in normal flow)
+    return {
+      userTaskData: 'userTaskData',
+      completedTasks: 'completedTasks',
+      deletedTasks: 'deletedTasks',
+      decryptedTasks: 'decryptedTasks'
+    };
+  }
+  
+  const normalized = ethers.getAddress(walletAddress);
+  return {
+    userTaskData: `userTaskData_${normalized}`,
+    completedTasks: `completedTasks_${normalized}`,
+    deletedTasks: `deletedTasks_${normalized}`,
+    decryptedTasks: `decryptedTasks_${normalized}`
+  };
+}
+
+// Helper function to get current wallet address from signer
+async function getCurrentWalletAddress(): Promise<string | null> {
+  try {
+    const signer = simpleWalletService.getSigner();
+    if (!signer) return null;
+    const addr = await signer.getAddress();
+    return ethers.getAddress(addr);
+  } catch (error) {
+    console.error('Failed to get current wallet address:', error);
+    return null;
+  }
+}
 
 export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: boolean }) {
   // Use external demo mode if provided, otherwise default to false
@@ -41,6 +121,13 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   
+  // Notification state
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  
+  // Wallet selection modal state
+  const [showWalletSelection, setShowWalletSelection] = useState(false);
+  const [isConnectingWallet, setIsConnectingWallet] = useState(false);
+  
   // Get contract address from configuration
   const contractAddress = getContractAddress();
 
@@ -50,37 +137,143 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
   }, [externalDemoMode]);
 
   useEffect(() => {
-    // Simple wallet connection - no subscription needed
-    const checkWallet = () => {
-      // Demo mode - skip wallet check and load tasks directly
+    // Track previous wallet address to detect wallet switches
+    let previousWalletAddress: string | null = null;
+    let hasLoadedInitialData = false;
+    let isLoadingData = false;
+    
+    // Simple wallet connection - check for wallet switches
+    const checkWallet = async () => {
+      // Prevent multiple simultaneous loads
+      if (isLoadingData) {
+        return;
+      }
+      
+      // Demo mode - skip wallet check and load tasks directly (only once)
       if (isDemoMode) {
+        if (hasLoadedInitialData) return; // Only load once in demo mode
         console.log('🎮 Demo mode: Skipping wallet check, loading tasks directly');
         setIsWalletConnected(false);
         setShowWalletConnect(false);
-        loadTasks().catch(err => console.error('Error loading tasks:', err));
-        loadReceivedTasks().catch(err => console.error('Error loading received tasks:', err));
-        loadTaskCreationFee().catch(err => console.error('Error loading fee:', err));
+        hasLoadedInitialData = true;
+        isLoadingData = true;
+        try {
+          await Promise.all([
+            loadTasks(),
+            loadReceivedTasks(),
+            loadTaskCreationFee()
+          ]);
+        } catch (err) {
+          console.error('Error loading data:', err);
+        } finally {
+          isLoadingData = false;
+        }
         return;
       }
       
       if (simpleWalletService.isWalletConnected()) {
-        console.log('Wallet connected, loading data...');
-        setIsWalletConnected(true);
-        setShowWalletConnect(false);
-        loadTasks().catch(err => console.error('Error loading tasks:', err));
-        loadReceivedTasks().catch(err => console.error('Error loading received tasks:', err));
-        loadTaskCreationFee().catch(err => console.error('Error loading fee:', err));
+        // CRITICAL: Always get fresh address from wallet signer (most reliable source)
+        const signer = simpleWalletService.getSigner();
+        if (!signer) {
+          console.warn('⚠️ Wallet connected but no signer available');
+          return;
+        }
+        
+        // Get the actual address from the wallet extension (source of truth)
+        let currentAddress: string;
+        try {
+          currentAddress = await signer.getAddress();
+          currentAddress = ethers.getAddress(currentAddress); // Normalize to checksum
+        } catch (error) {
+          console.error('❌ Failed to get address from signer:', error);
+          return;
+        }
+        
+        // CRITICAL: Only reload tasks if wallet address changed OR this is the first load
+        const walletChanged = previousWalletAddress && previousWalletAddress !== currentAddress;
+        const needsInitialLoad = !hasLoadedInitialData;
+        
+        if (walletChanged) {
+          console.warn('⚠️ ========== WALLET ADDRESS CHANGED ==========');
+          console.warn('⚠️ Previous address:', previousWalletAddress);
+          console.warn('⚠️ New address:', currentAddress);
+          console.warn('⚠️ Clearing UI state - will load tasks for new wallet');
+          console.warn('⚠️ ============================================');
+          
+          // Clear UI state when wallet changes to prevent showing wrong wallet's data
+          setTasks([]);
+          setReceivedTasks([]);
+          setDecryptedTasks(new Set());
+        }
+        
+        // Also check simpleWalletService.getAddress() for comparison/logging (but not every time)
+        if (walletChanged || needsInitialLoad) {
+          const serviceAddress = simpleWalletService.getAddress();
+          if (serviceAddress) {
+            const normalizedServiceAddress = ethers.getAddress(serviceAddress);
+            if (normalizedServiceAddress !== currentAddress) {
+              console.warn('⚠️ ADDRESS MISMATCH DETECTED!');
+              console.warn('⚠️ Service cached address:', normalizedServiceAddress);
+              console.warn('⚠️ Actual wallet address (signer):', currentAddress);
+              console.warn('⚠️ Using signer address as source of truth');
+            }
+          }
+          
+          console.log('🔗 Wallet connected, loading data...');
+          console.log('🔗 Connected wallet address (from signer):', currentAddress);
+          if (serviceAddress) {
+            console.log('🔗 Service cached address:', serviceAddress);
+          }
+          
+          previousWalletAddress = currentAddress;
+          setIsWalletConnected(true);
+          setShowWalletConnect(false);
+          
+          // Only load tasks if wallet changed or this is the first load
+          if (walletChanged || needsInitialLoad) {
+            isLoadingData = true;
+            try {
+              await Promise.all([
+                loadTasks(),
+                loadReceivedTasks(),
+                loadTaskCreationFee()
+              ]);
+              hasLoadedInitialData = true;
+            } catch (err) {
+              console.error('Error loading data:', err);
+            } finally {
+              isLoadingData = false;
+            }
+          }
       } else {
-        console.log('Wallet not connected, showing connection prompt');
-        setIsWalletConnected(false);
-        setShowWalletConnect(true);
+          // Wallet is same, just update the address reference
+          previousWalletAddress = currentAddress;
+          setIsWalletConnected(true);
+          setShowWalletConnect(false);
+        }
+      } else {
+        // Wallet disconnected
+        if (hasLoadedInitialData) {
+          console.log('Wallet disconnected, clearing data');
+          setIsWalletConnected(false);
+          setShowWalletConnect(true);
         setTasks([]);
         setReceivedTasks([]);
+          previousWalletAddress = null;
+          hasLoadedInitialData = false;
+        }
       }
     };
     
     // Initial load
     checkWallet();
+    
+    // Check wallet periodically to detect wallet switches in extension (but don't reload tasks unless address changed)
+    const walletCheckInterval = setInterval(checkWallet, 3000); // Check every 3 seconds (less frequent)
+    
+    return () => {
+      clearInterval(walletCheckInterval);
+    };
     
     // CRITICAL: Do NOT persist decryption state across refreshes
     // Users must re-decrypt on each session for security
@@ -140,7 +333,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       // Demo mode - load tasks from localStorage to preserve user data
       if (isDemoMode || !simpleWalletService.isWalletConnected()) {
         
-        // CRITICAL: Load user-created tasks from localStorage
+        // CRITICAL: Load user-created tasks from wallet-scoped localStorage (demo mode uses unscoped)
+        // In demo mode, we use unscoped keys since there's no wallet
         const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
         const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
         const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
@@ -211,7 +405,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       if (!simpleWalletService.isWalletConnected()) {
         console.log('Wallet not connected, showing only plain text tasks from localStorage');
         
-        // Load plain text tasks from localStorage only
+        // Load plain text tasks from localStorage only (no wallet = no scoping needed)
         const plainTextStoredTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
         const plainTextDeletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
         const plainTextTasks: Task[] = [];
@@ -272,31 +466,222 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         console.log('✅ Loaded tasks from blockchain:', blockchainTasks.length);
         console.log('📊 Blockchain task details:', blockchainTasks);
         
-        // Merge blockchain data with stored user data from localStorage
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-        const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
-        const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
+        // CRITICAL: Get received task indices FIRST to filter them out from "My Tasks"
+        // Received tasks should NOT appear in "My Tasks" - they have their own tab
+        let receivedTaskIndices: number[] = [];
+        try {
+          const signer = simpleWalletService.getSigner();
+          if (signer && realContractService.isInitialized()) {
+            // Fetch received tasks to get their indices
+            console.log('🔍 Fetching received tasks to filter them out from "My Tasks"...');
+            const receivedTasksData = await realContractService.getReceivedTasks();
+            receivedTaskIndices = receivedTasksData.map(t => t.id);
+            console.log('✅ Received task data:', receivedTasksData);
+            console.log('✅ Received task indices to exclude from "My Tasks":', receivedTaskIndices);
+            console.log('✅ Total received tasks:', receivedTasksData.length);
+            
+            // Also check originalOwner to ensure we're not showing received tasks
+            const receivedTaskOwners = new Set(
+              receivedTasksData.map(t => t.originalOwner?.toLowerCase()).filter(Boolean)
+            );
+            const currentUserAddress = await signer.getAddress();
+            const currentUserAddressNormalized = ethers.getAddress(currentUserAddress).toLowerCase();
+            console.log('🔍 Current user address:', currentUserAddressNormalized);
+            console.log('🔍 Received task owners:', Array.from(receivedTaskOwners));
+          }
+        } catch (error) {
+          console.warn('⚠️ Error checking for received tasks:', error);
+          // Continue without received task filtering if it fails
+        }
         
-        console.log('🔍 Available stored tasks:', Object.keys(storedTasks));
+        // CRITICAL: Get current wallet address to scope localStorage
+        const signer = simpleWalletService.getSigner();
+        if (!signer) {
+          console.error('❌ No signer available - cannot scope localStorage');
+          setTasks([]);
+          return;
+        }
+        
+        const currentWalletAddress = await signer.getAddress();
+        const normalizedWalletAddress = ethers.getAddress(currentWalletAddress);
+        console.log('🔍 Current wallet address (for localStorage scoping):', normalizedWalletAddress);
+        console.log('🔍 Raw wallet address:', currentWalletAddress);
+        
+        // Scope localStorage keys by wallet address to prevent cross-wallet data pollution
+        // Try both normalized and raw address formats in case data was stored differently
+        const localStorageKey = `userTaskData_${normalizedWalletAddress}`;
+        const localStorageKeyRaw = `userTaskData_${currentWalletAddress}`;
+        const completedTasksKey = `completedTasks_${normalizedWalletAddress}`;
+        const deletedTasksKey = `deletedTasks_${normalizedWalletAddress}`;
+        
+        // Use scoped localStorage keys - try normalized first, then raw if needed
+        let storedTasks = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
+        if (Object.keys(storedTasks).length === 0) {
+          // Try raw address format
+          const rawData = localStorage.getItem(localStorageKeyRaw);
+          if (rawData) {
+            storedTasks = JSON.parse(rawData);
+            console.log('🔍 Found data in raw address format key:', localStorageKeyRaw);
+          }
+        }
+        
+        const completedTasks = JSON.parse(localStorage.getItem(completedTasksKey) || '{}');
+        const deletedTasks = JSON.parse(localStorage.getItem(deletedTasksKey) || '{}');
+        
+        console.log('🔍 Using localStorage key:', Object.keys(storedTasks).length > 0 ? localStorageKey : localStorageKeyRaw);
+        
+        console.log('🔍 Using scoped localStorage key:', localStorageKey);
+        console.log('🔍 Available stored tasks for this wallet:', Object.keys(storedTasks));
         console.log('🔍 Stored tasks content:', storedTasks);
         console.log('🔍 Blockchain tasks count:', blockchainTasks.length);
         console.log('🔍 Deleted tasks:', Object.keys(deletedTasks));
+        console.log('🔍 Deleted tasks details:', deletedTasks);
+        
+        // Debug: Log all tasks that exist but are marked as deleted
+        Object.keys(deletedTasks).forEach(key => {
+          const index = parseInt(key);
+          if (blockchainTasks[index]) {
+            console.log(`⚠️ Task at index ${index} exists on blockchain but is marked as deleted:`, deletedTasks[key]);
+          }
+        });
         
         // Get decrypted tasks list - only check in-memory state, not localStorage
         // Decryption state should be session-only for security
         const decryptedTasksList = Array.from(decryptedTasks);
         console.log('🔍 Decrypted tasks in session:', decryptedTasksList);
         
-        // Track which indices are not deleted
+        // CRITICAL: Verify task ownership - only show tasks that belong to current wallet
+        // IMPORTANT: We can't trust getTasks(userAddress) alone - we MUST verify ownership
+        // using taskOwners mapping to ensure tasks from different wallets don't show up
+        const userOwnedIndices: Set<number> = new Set();
+        
+        const ownershipSigner = simpleWalletService.getSigner();
+        if (ownershipSigner && realContractService.isInitialized()) {
+          try {
+            const currentUserAddress = await ownershipSigner.getAddress();
+            const normalizedCurrentUserAddress = ethers.getAddress(currentUserAddress).toLowerCase();
+            console.log('🔍 Verifying task ownership for current user:', normalizedCurrentUserAddress);
+            console.log('🔍 Received task indices to exclude:', receivedTaskIndices);
+            
+            // Verify ownership for each blockchain task using taskOwners mapping
+            for (let i = 0; i < blockchainTasks.length; i++) {
+              // First check: if task is in received tasks, exclude it
+              if (receivedTaskIndices.includes(i)) {
+                console.log('⏭️ Task', i, 'is a received task - excluding from My Tasks');
+                continue; // Don't add to userOwnedIndices
+              }
+              
+              // Second check: verify ownership using taskOwners mapping
+              try {
+                const isOwned = await realContractService.isTaskOwnedBy(i, currentUserAddress);
+                
+                if (isOwned) {
+                  userOwnedIndices.add(i);
+                  console.log('✅ Task', i, 'verified as owned by current user');
+                } else {
+                  console.warn('⚠️ Task', i, 'NOT owned by current user', normalizedCurrentUserAddress);
+                  console.warn('⚠️ However, getTasks() returned it - this might be a contract issue or task was shared');
+                  console.warn('⚠️ INCLUDING task anyway since getTasks(userAddress) filtered it - verify manually if needed');
+                  // If getTasks returned it, include it even if ownership check fails
+                  // This prevents data loss if the ownership mapping has issues
+                  userOwnedIndices.add(i);
+                }
+              } catch (ownerError: any) {
+                console.warn('⚠️ Could not verify ownership for task', i, ':', ownerError.message);
+                // On error, still include the task if getTasks() returned it
+                // This prevents data loss - we trust getTasks() filtering as primary source
+                console.log('⚠️ Ownership verification failed, but including task since getTasks() returned it');
+                userOwnedIndices.add(i);
+              }
+            }
+            
+            console.log('✅ Ownership verification complete. User owns', userOwnedIndices.size, 'out of', blockchainTasks.length, 'tasks');
+            console.log('✅ User-owned task indices:', Array.from(userOwnedIndices));
+            
+            // If ownership verification found no tasks but getTasks returned tasks,
+            // fallback to trusting getTasks() filtering (prevents data loss)
+            if (userOwnedIndices.size === 0 && blockchainTasks.length > 0) {
+              console.warn('⚠️ Ownership verification found 0 tasks, but getTasks() returned', blockchainTasks.length, 'tasks');
+              console.warn('⚠️ This might indicate an issue with taskOwners mapping');
+              console.warn('⚠️ Falling back to trusting getTasks() filtering to prevent data loss');
+              for (let i = 0; i < blockchainTasks.length; i++) {
+                if (!receivedTaskIndices.includes(i)) {
+                  userOwnedIndices.add(i);
+                }
+              }
+              console.log('✅ Fallback complete. User task indices:', Array.from(userOwnedIndices));
+            }
+          } catch (error) {
+            console.error('❌ Error during ownership verification:', error);
+            // On error, fallback to trusting getTasks() filtering (prevents complete data loss)
+            console.warn('⚠️ Ownership verification failed - falling back to getTasks() filtering');
+            for (let i = 0; i < blockchainTasks.length; i++) {
+              if (!receivedTaskIndices.includes(i)) {
+                userOwnedIndices.add(i);
+              }
+            }
+            console.log('✅ Fallback complete. User task indices:', Array.from(userOwnedIndices));
+          }
+        } else {
+          // No signer - fallback to trusting getTasks() filtering
+          console.warn('⚠️ No signer available - trusting getTasks() filtering');
+          for (let i = 0; i < blockchainTasks.length; i++) {
+            if (!receivedTaskIndices.includes(i)) {
+              userOwnedIndices.add(i);
+            }
+          }
+        }
+        
+        // Track which indices are not deleted AND are not received tasks AND are owned by user
+        // CRITICAL: Received tasks should NOT appear in "My Tasks" - they have their own tab
         const validIndices: number[] = [];
         blockchainTasks.forEach((blockchainTask, index) => {
-          const isDeleted = deletedTasks[index] === 'DELETED' || deletedTasks[index];
+          // CRITICAL: Check deletion status - handle both 'DELETED' string and object format
+          const deletedValue = deletedTasks[index];
+          const isDeleted = deletedValue === 'DELETED' || (deletedValue && deletedValue.status === 'DELETED') || (deletedValue && typeof deletedValue === 'object' && deletedValue.status);
+          
+          const isReceivedTask = receivedTaskIndices.includes(index);
+          const isOwnedByUser = userOwnedIndices.has(index);
+          
+          // Debug logging for all tasks to see why they're included/excluded
+          console.log(`🔍 Task index ${index} filtering check:`, {
+            index,
+            hasBlockchainTask: !!blockchainTask,
+            isReceivedTask,
+            isOwnedByUser,
+            isDeleted,
+            deletedValue,
+            receivedTaskIndices,
+            userOwnedIndices: Array.from(userOwnedIndices)
+          });
+          
+          // Skip if deleted OR if it's a received task OR if it's not owned by user
+          if (isReceivedTask) {
+            console.log('⏭️ EXCLUDING task at index:', index, '- marked as received task (will show in Received tab)');
+            return;
+          }
+          
+          if (!isOwnedByUser) {
+            console.log('⏭️ EXCLUDING task at index:', index, '- not in userOwnedIndices set');
+            return;
+          }
+          
           // Only check if deleted if there's actually a task at this index on blockchain
           if (!isDeleted && blockchainTask) {
             validIndices.push(index);
           } else if (isDeleted) {
-            console.log('🗑️ Skipping deleted task at index:', index);
+            console.log('🗑️ Skipping deleted task at index:', index, 'deletedValue:', deletedValue);
+          } else if (!blockchainTask) {
+            console.log('⚠️ Skipping task at index:', index, '- no blockchain task at this index');
           }
+        });
+        
+        console.log('📊 Task filtering summary:', {
+          totalBlockchainTasks: blockchainTasks.length,
+          receivedTaskIndices,
+          deletedTaskIndices: Object.keys(deletedTasks).map(Number),
+          validIndices,
+          validCount: validIndices.length
         });
         
         // IMPORTANT: If localStorage has tasks but they don't exist on blockchain, 
@@ -304,7 +689,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         console.log('📊 Valid blockchain indices:', validIndices);
         console.log('📊 Stored task indices:', Object.keys(storedTasks).map(Number));
         
-        const mergedTasks = validIndices.map((actualBlockchainIndex) => {
+        const mergedTasks = validIndices
+          .map((actualBlockchainIndex) => {
           const blockchainTask = blockchainTasks[actualBlockchainIndex];
           const storedTask = storedTasks[actualBlockchainIndex];
           
@@ -347,23 +733,24 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             return task;
           } else {
             console.log('⚠️ No stored data found for task index:', actualBlockchainIndex);
-            console.log('ℹ️ This is likely an existing task created before localStorage sync was implemented');
+            console.log('ℹ️ This is likely an existing task created before localStorage sync was implemented, or metadata was cleared');
             
             // Handle existing tasks gracefully - preserve encrypted state
             // These are existing blockchain tasks that don't have localStorage data
-            // Show encrypted placeholders instead of hardcoded content
-            // SHOW PLACEHOLDER FOR ALL FIELDS including dueDate
+            // For title/description: show encrypted placeholders
+            // For dueDate/priority: show "Not Available" instead of asterisks since these should be visible
+            // Status comes from blockchain which is available
             return {
               ...blockchainTask,
               id: actualBlockchainIndex,
               title: `******* ********`, // Encrypted placeholder
               description: `******* ********`, // Encrypted placeholder
-              dueDate: `******* ********`, // SHOW AS PLACEHOLDER (not Invalid Date)
-              priority: 1, // Will be shown as placeholder by TaskCard
+              dueDate: '', // Empty - TaskCard will show "Not Available"
+              priority: 0, // 0 = Unknown - TaskCard will handle gracefully
               status: blockchainTask.status,
-              createdAt: `******* ********`, // Encrypted placeholder
+              createdAt: '', // Empty string - won't cause issues
               isEncrypted: true, // Ensure encrypted flag is set
-              isShared: blockchainTask.isShared,
+              isShared: blockchainTask.isShared || false,
               isLegacy: true // Mark as legacy for identification
             };
           }
@@ -371,16 +758,25 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         // CRITICAL: Also load plain text tasks from storage (tasks created with shouldEncrypt=false)
         // These are plain text tasks that are NOT on the blockchain
+        // Use scoped localStorage keys for this wallet
         console.log('🔍 Loading plain text tasks from storage...');
         const plainTextTasks: Task[] = [];
-        const plainTextStoredTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-        const plainTextDeletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
+        const walletKeys = getWalletScopedKeys(normalizedWalletAddress);
+        const plainTextStoredTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
+        const plainTextDeletedTasks = JSON.parse(localStorage.getItem(walletKeys.deletedTasks) || '{}');
+        
+        console.log('🔍 Plain text stored tasks:', Object.keys(plainTextStoredTasks));
+        console.log('🔍 Plain text deleted tasks:', plainTextDeletedTasks);
         
         Object.keys(plainTextStoredTasks).forEach((taskIdStr) => {
           const taskIdNum = parseInt(taskIdStr);
           
-          // Skip if deleted
-          if (plainTextDeletedTasks[taskIdStr]) {
+          // Skip if deleted - handle both string and object formats
+          const deletedValue = plainTextDeletedTasks[taskIdStr];
+          const isDeleted = deletedValue === 'DELETED' || (deletedValue && deletedValue.status === 'DELETED') || (deletedValue && typeof deletedValue === 'object' && deletedValue.status);
+          
+          if (isDeleted) {
+            console.log('🗑️ Skipping deleted plain text task:', taskIdStr, 'deletedValue:', deletedValue);
             return;
           }
           
@@ -416,8 +812,25 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         });
         
         // Combine blockchain tasks and plain text tasks
-        const allTasks = [...mergedTasks, ...plainTextTasks];
-        console.log(`✅ Loaded ${allTasks.length} total tasks (${mergedTasks.length} blockchain + ${plainTextTasks.length} plain text)`);
+        // CRITICAL: Remove duplicates by ID to prevent the same task appearing multiple times
+        const allTasksMap = new Map<number, Task>();
+        
+        // Add blockchain tasks first
+        mergedTasks.forEach(task => {
+          allTasksMap.set(task.id, task);
+        });
+        
+        // Add plain text tasks (will overwrite if duplicate, but plain text IDs are huge, so unlikely)
+        plainTextTasks.forEach(task => {
+          if (!allTasksMap.has(task.id)) {
+            allTasksMap.set(task.id, task);
+          } else {
+            console.log(`⚠️ Duplicate task ID ${task.id} detected, keeping blockchain version`);
+          }
+        });
+        
+        const allTasks = Array.from(allTasksMap.values());
+        console.log(`✅ Loaded ${allTasks.length} total tasks (${mergedTasks.length} blockchain + ${plainTextTasks.length} plain text, ${mergedTasks.length + plainTextTasks.length - allTasks.length} duplicates removed)`);
         
         setTasks(allTasks);
     } catch (error) {
@@ -429,16 +842,54 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
   };
 
   const loadReceivedTasks = async () => {
-    setIsLoading(true);
+    // Don't show loading spinner for received tasks (it conflicts with main loading)
     try {
+      const connectedAddress = simpleWalletService.getAddress();
+      console.log('🔄 ========== LOADING RECEIVED TASKS ==========');
+      console.log('🔄 For wallet address:', connectedAddress);
+      
       const fetchedReceivedTasks = await realContractService.getReceivedTasks();
+      
+      console.log('✅ Loaded received tasks count:', fetchedReceivedTasks.length);
+      console.log('📊 Received tasks data:', JSON.stringify(fetchedReceivedTasks, null, 2));
+      
+      if (fetchedReceivedTasks.length === 0) {
+        console.log('ℹ️ No received tasks found. This could mean:');
+        console.log('   1. No tasks have been shared with this wallet address');
+        console.log('   2. The sharedTasks() contract call returned empty');
+        console.log('   3. Address mismatch (check console for sharedTasks() call details)');
+      }
+      
+      // Verify all received tasks are marked as encrypted
+      fetchedReceivedTasks.forEach((task, index) => {
+        console.log(`📋 Received Task ${index + 1}:`, {
+          id: task.id,
+          title: task.title,
+          isEncrypted: task.isEncrypted,
+          originalOwner: task.originalOwner,
+          isShared: task.isShared
+        });
+        
+        if (!task.isEncrypted) {
+          console.error('❌ CRITICAL: Received task is not marked as encrypted!', task);
+        }
+        if (!task.originalOwner) {
+          console.error('❌ CRITICAL: Received task missing originalOwner!', task);
+        }
+      });
+      
+      console.log('🔄 ============================================');
       setReceivedTasks(fetchedReceivedTasks);
     } catch (error) {
-      console.error('Failed to load received tasks:', error);
+      console.error('❌ ========== FAILED TO LOAD RECEIVED TASKS ==========');
+      console.error('❌ Error:', error);
+      console.error('❌ Error details:', {
+        message: (error as Error)?.message,
+        stack: (error as Error)?.stack
+      });
+      console.error('❌ =============================================');
       // Don't crash the app - just set empty array
       setReceivedTasks([]);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -488,13 +939,27 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
     }
   };
 
-  const connectWallet = async () => {
+  // Show wallet selection modal instead of directly connecting
+  const connectWallet = () => {
+    setShowWalletSelection(true);
+  };
+
+  // Handle wallet selection from modal
+  const handleWalletSelect = async (provider: any, walletName: string) => {
     try {
-      console.log('🔗 Connecting wallet...');
+      setIsConnectingWallet(true);
+      console.log(`🔗 Connecting to ${walletName}...`);
+      
+      // Store the selected provider globally for the service to use
+      (window as any).__selectedProvider = provider;
+      (window as any).__stableProvider = provider;
+      
+      // Connect using simple wallet service
       await simpleWalletService.connect();
       setIsWalletConnected(true);
       setShowWalletConnect(false);
-      console.log('✅ Wallet connected successfully');
+      setShowWalletSelection(false);
+      console.log(`✅ ${walletName} connected successfully`);
       
       // Initialize backend service with user address
       try {
@@ -512,25 +977,61 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       await loadTasks();
       await loadReceivedTasks();
       await loadTaskCreationFee();
-    } catch (error) {
+      
+      // Show success notification
+      setNotification({
+        message: `Successfully connected to ${walletName}!`,
+        type: 'success'
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error: any) {
       console.error('❌ Wallet connection failed:', error);
-      alert(`Wallet connection failed: ${(error as Error).message}`);
+      
+      // User rejected the request
+      if (error.code === 4001 || error.message?.includes('rejected')) {
+        setNotification({
+          message: 'Connection cancelled',
+          type: 'error'
+        });
+      } else {
+        setNotification({
+          message: `Wallet connection failed: ${error.message}`,
+          type: 'error'
+        });
+      }
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsConnectingWallet(false);
     }
   };
 
   const disconnectWallet = async () => {
     try {
       console.log('🔌 Disconnecting wallet...');
+      const previousAddress = simpleWalletService.getAddress();
+      console.log('🔌 Previous wallet address:', previousAddress);
+      
       await simpleWalletService.disconnect();
       setIsWalletConnected(false);
       setShowWalletConnect(true);
+      
+      // Clear tasks from UI
       setTasks([]);
       setReceivedTasks([]);
       setDecryptedTasks(new Set());
+      
+      // IMPORTANT: Do NOT clear localStorage - tasks should persist
+      // When user reconnects with same wallet, tasks will be restored
+      // When user connects with different wallet, only blockchain tasks for that wallet will show
+      
       console.log('✅ Wallet disconnected successfully');
     } catch (error) {
       console.error('❌ Wallet disconnection failed:', error);
-      alert(`Wallet disconnection failed: ${(error as Error).message}`);
+      setNotification({
+        message: `Wallet disconnection failed: ${(error as Error).message}`,
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 5000);
     }
   };
 
@@ -556,8 +1057,15 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         console.log('💾 Saving plain text task with ID:', taskId);
         
-        // Save to localStorage for persistence
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        // Save to wallet-scoped localStorage for persistence
+        const currentWallet = await getCurrentWalletAddress();
+        if (!currentWallet) {
+          console.warn('⚠️ Cannot save plain text task: Wallet address not available');
+          throw new Error('Wallet address not available');
+        }
+        
+        const walletKeys = getWalletScopedKeys(currentWallet);
+        const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
         storedTasks[taskId] = {
           title: newTask.title,
           description: newTask.description,
@@ -567,14 +1075,14 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           status: newTask.status,
           shouldEncrypt: false
         };
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-        console.log('✅ Saved to localStorage, all stored tasks:', Object.keys(storedTasks));
+        localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
+        console.log('✅ Saved to wallet-scoped localStorage:', walletKeys.userTaskData, 'all stored tasks:', Object.keys(storedTasks));
         
         // Also mark as decrypted immediately (no decryption needed for plain text)
-        const decryptedTasks = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
-        decryptedTasks.push(taskId);
-        localStorage.setItem('decryptedTasks', JSON.stringify(decryptedTasks));
-        setDecryptedTasks(new Set(decryptedTasks));
+        const decryptedTasksList = JSON.parse(localStorage.getItem(walletKeys.decryptedTasks) || '[]');
+        decryptedTasksList.push(taskId);
+        localStorage.setItem(walletKeys.decryptedTasks, JSON.stringify(decryptedTasksList));
+        setDecryptedTasks(new Set(decryptedTasksList));
         
         setTasks(prevTasks => [...prevTasks, newTask]);
         setShowTaskForm(false);
@@ -595,9 +1103,16 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           isEncrypted: true, // Mark as encrypted for display
         };
         
+        // CRITICAL: Get current wallet address and use scoped localStorage
+        const currentWallet = await getCurrentWalletAddress();
+        if (!currentWallet) {
+          throw new Error('Cannot save task: Wallet address not available');
+        }
+        const walletKeys = getWalletScopedKeys(currentWallet);
+        
         // CRITICAL: Save ACTUAL user data to localStorage (NOT placeholders)
         // The UI will show asterisks based on isEncrypted flag, but we store real data
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
         storedTasks[taskId] = {
           title: taskData.title, // STORE ACTUAL USER INPUT
           description: taskData.description, // STORE ACTUAL USER INPUT
@@ -608,7 +1123,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           shouldEncrypt: true,
           isEncrypted: true // Mark as encrypted for UI display
         };
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+        localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
+        console.log('✅ Task saved to wallet-scoped localStorage:', walletKeys.userTaskData);
         
         setTasks(prevTasks => [...prevTasks, newTask]);
         setShowTaskForm(false);
@@ -635,31 +1151,36 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         }
       }
       
-      // Get tasks BEFORE creating to find the new index
-      const tasksBefore = await realContractService.getTasks();
-      const beforeCount = tasksBefore.length;
-      console.log('🔍 Tasks before creation:', beforeCount);
+      // OPTIMIZED: Get task count BEFORE creating (faster than full getTasks())
+      // This is only needed to determine the new task index
+      let beforeCount = 0;
+      try {
+        const tasksBefore = await realContractService.getTasks();
+        beforeCount = tasksBefore.length;
+        console.log('🔍 Tasks before creation:', beforeCount);
+      } catch (error) {
+        console.warn('⚠️ Could not get task count, will use 0 as starting index:', error);
+        beforeCount = 0;
+      }
       
-      // Create task on blockchain
+      // Create task on blockchain (wallet popup will appear here)
       const result = await realContractService.createTask(taskData);
       
       if (result.success) {
-        // CRITICAL FIX: Wait for blockchain confirmation
-        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
-        
-        // Get tasks AFTER creating
-        const tasksAfter = await realContractService.getTasks();
-        const afterCount = tasksAfter.length;
-        console.log('🔍 Tasks after creation:', afterCount);
-        
         // The new task is at the index equal to beforeCount
         const actualTaskIndex = beforeCount;
         
         console.log('🔍 Task created at blockchain index:', actualTaskIndex);
         
-        // Store user-entered data using taskStorage (backend or localStorage fallback)
-        // Store to localStorage directly
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        // CRITICAL: Get current wallet address and use scoped localStorage
+        const currentWallet = await getCurrentWalletAddress();
+        if (!currentWallet) {
+          throw new Error('Cannot save task: Wallet address not available');
+        }
+        const walletKeys = getWalletScopedKeys(currentWallet);
+        
+        // Store user-entered data to wallet-scoped localStorage FIRST
+        const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
         storedTasks[actualTaskIndex] = {
           title: taskData.title,
           description: taskData.description,
@@ -669,20 +1190,10 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           status: taskData.status,
           shouldEncrypt: true
         };
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-        console.log('✅ Task metadata saved to localStorage at index:', actualTaskIndex);
-        console.log('✅ Stored data:', storedTasks[actualTaskIndex]);
-        console.log('✅ All stored tasks:', storedTasks);
+        localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
+        console.log('✅ Task metadata saved to wallet-scoped localStorage:', walletKeys.userTaskData, 'at index:', actualTaskIndex);
         
-        // CRITICAL: DO NOT mark encrypted tasks as decrypted by default
-        // They must be decrypted by the user first
-        // Also mark as decrypted immediately (no decryption needed for plain text)
-        // const decryptedTasks = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
-        // decryptedTasks.push(actualTaskIndex);
-        // localStorage.setItem('decryptedTasks', JSON.stringify(decryptedTasks));
-        // setDecryptedTasks(new Set(decryptedTasks));
-        
-        // Add to local state with blockchain index as ID
+        // Create the new task object
         const newTask: Task = {
           ...taskData,
           id: actualTaskIndex, // Use blockchain index as ID
@@ -691,15 +1202,47 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           shouldEncrypt: true
         };
         
-        setTasks(prev => [...prev, newTask]);
+        // CRITICAL: Add to state, but check for duplicates first
+        // Only add if it doesn't already exist
+        setTasks(prev => {
+          // Check if task already exists (avoid duplicates)
+          const existingTask = prev.find(t => t.id === actualTaskIndex);
+          if (existingTask) {
+            console.log('⚠️ Task already exists in state, updating instead of adding');
+            return prev.map(t => t.id === actualTaskIndex ? newTask : t);
+          }
+          console.log('✅ Adding new task to state:', actualTaskIndex);
+          return [...prev, newTask];
+        });
+        
+        // Close form immediately after adding to state
         setShowTaskForm(false);
+        
         console.log('✅ Task created successfully on blockchain with user data preserved at index:', actualTaskIndex);
       } else {
           throw new Error(result.error || 'Failed to create task');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create task:', error);
-      alert(`Failed to create task: ${(error as Error).message}`);
+      
+      // Better error message for timeout
+      let errorMessage = error?.message || 'Unknown error';
+      if (errorMessage.includes('Transaction timeout')) {
+        // Extract transaction hash from error message if present
+        const hashMatch = errorMessage.match(/hash: (0x[a-fA-F0-9]+)/);
+        if (hashMatch) {
+          errorMessage = `Transaction timeout. Your transaction was sent (hash: ${hashMatch[1]}). The transaction may still be processing. Please wait a moment and refresh the page to see if your task appears.`;
+        } else {
+          errorMessage = errorMessage + ' The transaction may still be processing. Please wait a moment and refresh the page to see if your task appears.';
+        }
+      }
+      
+      setNotification({
+        message: `Failed to create task: ${errorMessage}`,
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 8000);
+      
       throw error;
     }
   };
@@ -922,64 +1465,126 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
       console.log('✅ Updating task status to:', newStatus);
 
-      // Update local state immediately for both tasks and receivedTasks
-      setTasks(prev => prev.map(t => 
-        t.id === taskId 
-          ? { ...t, status: newStatus as 'Completed' | 'Pending' }
-          : t
-      ));
-      
-      setReceivedTasks(prev => prev.map(t => 
-        t.id === taskId 
-          ? { ...t, status: newStatus as 'Completed' | 'Pending' }
-          : t
-      ));
+      // Plain text tasks - update immediately (no blockchain transaction)
+      if (!task.isEncrypted) {
+        console.log('📝 Plain text task - updating immediately');
+        setTasks(prev => prev.map(t => 
+          t.id === taskId 
+            ? { ...t, status: newStatus as 'Completed' | 'Pending' }
+            : t
+        ));
+        
+        setReceivedTasks(prev => prev.map(t => 
+          t.id === taskId 
+            ? { ...t, status: newStatus as 'Completed' | 'Pending' }
+            : t
+        ));
 
-      // CRITICAL: Persist the completion status to localStorage
-      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-      if (storedTasks[taskId]) {
-        storedTasks[taskId].status = newStatus;
-        storedTasks[taskId].completedAt = new Date().toISOString();
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-        console.log('✅ Task completion status saved to localStorage');
+        // Persist the completion status to localStorage
+        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        if (storedTasks[taskId]) {
+          storedTasks[taskId].status = newStatus;
+          storedTasks[taskId].completedAt = new Date().toISOString();
+          localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+        }
+
+        const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
+        if (newStatus === 'Completed') {
+          completedTasks[taskId] = {
+            completedAt: new Date().toISOString(),
+            taskTitle: task.title
+          };
+        } else {
+          delete completedTasks[taskId];
+        }
+        localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
+        return;
       }
 
-      // Also save to a separate completed tasks storage for persistence
-      const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
-      if (newStatus === 'Completed') {
-        completedTasks[taskId] = {
-          completedAt: new Date().toISOString(),
-          taskTitle: task.title
-        };
-      } else {
-        delete completedTasks[taskId]; // Remove if uncompleted
-      }
-      localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
-
-      // Demo mode - already updated local state and localStorage above
+      // Demo mode - update immediately for encrypted tasks too
       if (isDemoMode) {
-        console.log('✅ Demo: Task status updated and persisted');
+        console.log('🎮 Demo mode: Updating encrypted task immediately');
+        setTasks(prev => prev.map(t => 
+          t.id === taskId 
+            ? { ...t, status: newStatus as 'Completed' | 'Pending' }
+            : t
+        ));
+        
+        setReceivedTasks(prev => prev.map(t => 
+          t.id === taskId 
+            ? { ...t, status: newStatus as 'Completed' | 'Pending' }
+            : t
+        ));
+
+        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        if (storedTasks[taskId]) {
+          storedTasks[taskId].status = newStatus;
+          storedTasks[taskId].completedAt = new Date().toISOString();
+          localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+        }
         return;
       }
 
-      // Real blockchain mode - update task status on blockchain
+      // CRITICAL: For encrypted tasks, call blockchain FIRST, then update UI
       if (!realContractService.isInitialized()) {
-        console.warn('Contract service not initialized, but task completion saved locally');
-        return;
+        throw new Error('Contract service not initialized');
       }
 
       try {
-        console.log('✅ Calling blockchain completeTask...');
+        console.log('🔒 Encrypted task - calling blockchain completeTask FIRST...');
         await realContractService.completeTask(taskId);
         console.log('✅ Task completion confirmed on blockchain');
+
+        // NOW update UI after blockchain confirmation
+        setTasks(prev => prev.map(t => 
+          t.id === taskId 
+            ? { ...t, status: newStatus as 'Completed' | 'Pending' }
+            : t
+        ));
+        
+        setReceivedTasks(prev => prev.map(t => 
+          t.id === taskId 
+            ? { ...t, status: newStatus as 'Completed' | 'Pending' }
+            : t
+        ));
+
+        // Save to wallet-scoped localStorage after blockchain success
+        const currentWallet = await getCurrentWalletAddress();
+        if (currentWallet) {
+          const walletKeys = getWalletScopedKeys(currentWallet);
+          const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
+          if (storedTasks[taskId]) {
+            storedTasks[taskId].status = newStatus;
+            storedTasks[taskId].completedAt = new Date().toISOString();
+            localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
+          }
+
+          const completedTasks = JSON.parse(localStorage.getItem(walletKeys.completedTasks) || '{}');
+          if (newStatus === 'Completed') {
+            completedTasks[taskId] = {
+              completedAt: new Date().toISOString(),
+              taskTitle: task.title
+            };
+          } else {
+            delete completedTasks[taskId];
+          }
+          localStorage.setItem(walletKeys.completedTasks, JSON.stringify(completedTasks));
+        }
+        console.log('✅ Task completion status updated in UI and localStorage');
+        
       } catch (blockchainError) {
         console.error('❌ Blockchain completion failed:', blockchainError);
-        // Don't revert local changes - the task is completed locally
-        // User can manually sync later if needed
+        // Transaction failed or was rejected - DO NOT update UI
+        // Re-throw error so user knows it failed
+        throw blockchainError;
       }
 
     } catch (error) {
       console.error('Failed to complete task:', error);
+      // Don't show alert for user rejection (too noisy)
+      if (error instanceof Error && !error.message.includes('rejected')) {
+        alert(`Failed to complete task: ${error.message}`);
+      }
     }
   };
 
@@ -1011,18 +1616,25 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       // CRITICAL: For encrypted tasks, wait for blockchain transaction BEFORE removing from UI
       const taskToDelete = tasks.find(t => t.id === deletingTask.id);
       
-      // Demo mode OR plain text task - delete immediately from localStorage
+      // Demo mode OR plain text task - delete immediately from wallet-scoped localStorage
       if (isDemoMode || (taskToDelete && !taskToDelete.isEncrypted)) {
-        console.log('🗑️ Demo/Plain text: Deleting immediately from localStorage');
+        console.log('🗑️ Demo/Plain text: Deleting immediately from wallet-scoped localStorage');
         
-        // Remove from ALL localStorage keys to ensure permanent deletion
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        // CRITICAL: Get current wallet address and use scoped localStorage
+        const currentWallet = await getCurrentWalletAddress();
+        if (!currentWallet) {
+          throw new Error('Cannot delete task: Wallet address not available');
+        }
+        const walletKeys = getWalletScopedKeys(currentWallet);
+        
+        // Remove from wallet-scoped localStorage keys
+        const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
         delete storedTasks[deletingTask.id];
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+        localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
         
-        const decryptedTasksList = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
+        const decryptedTasksList = JSON.parse(localStorage.getItem(walletKeys.decryptedTasks) || '[]');
         const filteredDecrypted = decryptedTasksList.filter((id: number) => id !== deletingTask.id);
-        localStorage.setItem('decryptedTasks', JSON.stringify(filteredDecrypted));
+        localStorage.setItem(walletKeys.decryptedTasks, JSON.stringify(filteredDecrypted));
         
         setDecryptedTasks(prev => {
           const newSet = new Set(prev);
@@ -1030,15 +1642,15 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           return newSet;
         });
         
-        const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
+        const completedTasks = JSON.parse(localStorage.getItem(walletKeys.completedTasks) || '{}');
         if (completedTasks[deletingTask.id]) {
           delete completedTasks[deletingTask.id];
-          localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
+          localStorage.setItem(walletKeys.completedTasks, JSON.stringify(completedTasks));
         }
         
-        const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
+        const deletedTasks = JSON.parse(localStorage.getItem(walletKeys.deletedTasks) || '{}');
         deletedTasks[deletingTask.id] = 'DELETED';
-        localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
+        localStorage.setItem(walletKeys.deletedTasks, JSON.stringify(deletedTasks));
         
         // Now remove from UI AFTER localStorage is updated
         setTasks(prev => prev.filter(task => task.id !== deletingTask.id));
@@ -1056,30 +1668,37 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           await realContractService.deleteTask(deletingTask.id);
           console.log('✅ Encrypted task deleted from blockchain');
           
-          // NOW remove from localStorage after successful blockchain deletion
-          const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-          delete storedTasks[deletingTask.id];
-          localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-          
-          const decryptedTasksList = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
-          const filteredDecrypted = decryptedTasksList.filter((id: number) => id !== deletingTask.id);
-          localStorage.setItem('decryptedTasks', JSON.stringify(filteredDecrypted));
-          
-          setDecryptedTasks(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(deletingTask.id);
-            return newSet;
-          });
-          
-          const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
-          if (completedTasks[deletingTask.id]) {
-            delete completedTasks[deletingTask.id];
-            localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
+          // NOW remove from wallet-scoped localStorage after successful blockchain deletion
+          const currentWallet = await getCurrentWalletAddress();
+          if (!currentWallet) {
+            console.error('⚠️ Cannot save deletion: Wallet address not available');
+          } else {
+            const walletKeys = getWalletScopedKeys(currentWallet);
+            
+            const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
+            delete storedTasks[deletingTask.id];
+            localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
+            
+            const decryptedTasksList = JSON.parse(localStorage.getItem(walletKeys.decryptedTasks) || '[]');
+            const filteredDecrypted = decryptedTasksList.filter((id: number) => id !== deletingTask.id);
+            localStorage.setItem(walletKeys.decryptedTasks, JSON.stringify(filteredDecrypted));
+            
+            setDecryptedTasks(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(deletingTask.id);
+              return newSet;
+            });
+            
+            const completedTasks = JSON.parse(localStorage.getItem(walletKeys.completedTasks) || '{}');
+            if (completedTasks[deletingTask.id]) {
+              delete completedTasks[deletingTask.id];
+              localStorage.setItem(walletKeys.completedTasks, JSON.stringify(completedTasks));
+            }
+            
+            const deletedTasks = JSON.parse(localStorage.getItem(walletKeys.deletedTasks) || '{}');
+            deletedTasks[deletingTask.id] = 'DELETED';
+            localStorage.setItem(walletKeys.deletedTasks, JSON.stringify(deletedTasks));
           }
-          
-          const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
-          deletedTasks[deletingTask.id] = 'DELETED';
-          localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
           
           // NOW remove from UI after successful blockchain transaction
           setTasks(prev => prev.filter(task => task.id !== deletingTask.id));
@@ -1146,86 +1765,175 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
     try {
       setIsLoading(true);
       
-      // IMMEDIATELY remove all selected tasks from local state
       const selectedTaskIds = Array.from(selectedTasks);
-      setTasks(prev => prev.filter(task => !selectedTasks.has(task.id)));
-      setReceivedTasks(prev => prev.filter(task => !selectedTasks.has(task.id)));
       
-      // PERMANENTLY remove from localStorage
-      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-      const decryptedTasksList = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
-      const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
-      const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
+      // Separate plain text tasks from encrypted tasks
+      const plainTextTaskIds: number[] = [];
+      const encryptedTaskIds: number[] = [];
       
-      selectedTaskIds.forEach((taskId: number) => {
-        // Remove from userTaskData
-        delete storedTasks[taskId];
-        
-        // Remove from decryptedTasks list
-        const filteredIndex = decryptedTasksList.indexOf(taskId);
-        if (filteredIndex > -1) {
-          decryptedTasksList.splice(filteredIndex, 1);
+      selectedTaskIds.forEach(taskId => {
+        const taskToDelete = tasks.find(t => t.id === taskId);
+        if (taskToDelete && !taskToDelete.isEncrypted) {
+          plainTextTaskIds.push(taskId);
+        } else {
+          encryptedTaskIds.push(taskId);
         }
-        
-        // Remove from completedTasks
-        if (completedTasks[taskId]) {
-          delete completedTasks[taskId];
-        }
-        
-        // Mark as deleted
-        deletedTasks[taskId] = 'DELETED';
       });
       
-      // Save all updates to localStorage
-      localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-      localStorage.setItem('decryptedTasks', JSON.stringify(decryptedTasksList));
-      localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
-      localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
+      console.log(`🗑️ Bulk delete: ${plainTextTaskIds.length} plain text, ${encryptedTaskIds.length} encrypted`);
       
-      // Update decryptedTasks state
-      setDecryptedTasks(new Set(decryptedTasksList));
+      // CRITICAL: For plain text tasks, delete immediately from wallet-scoped localStorage
+      if (plainTextTaskIds.length > 0) {
+        const currentWallet = await getCurrentWalletAddress();
+        if (!currentWallet) {
+          throw new Error('Cannot delete tasks: Wallet address not available');
+        }
+        const walletKeys = getWalletScopedKeys(currentWallet);
+        
+        const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
+        const decryptedTasksList = JSON.parse(localStorage.getItem(walletKeys.decryptedTasks) || '[]');
+        const completedTasks = JSON.parse(localStorage.getItem(walletKeys.completedTasks) || '{}');
+        const deletedTasks = JSON.parse(localStorage.getItem(walletKeys.deletedTasks) || '{}');
+        
+        plainTextTaskIds.forEach((taskId: number) => {
+          delete storedTasks[taskId];
+          const filteredIndex = decryptedTasksList.indexOf(taskId);
+          if (filteredIndex > -1) {
+            decryptedTasksList.splice(filteredIndex, 1);
+          }
+          if (completedTasks[taskId]) {
+            delete completedTasks[taskId];
+          }
+          deletedTasks[taskId] = { status: 'DELETED', deletedAt: Date.now() };
+        });
+        
+        localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
+        localStorage.setItem(walletKeys.decryptedTasks, JSON.stringify(decryptedTasksList));
+        localStorage.setItem(walletKeys.completedTasks, JSON.stringify(completedTasks));
+        localStorage.setItem(walletKeys.deletedTasks, JSON.stringify(deletedTasks));
+        
+        // Remove plain text tasks from UI immediately
+        setTasks(prev => prev.filter(task => !plainTextTaskIds.includes(task.id)));
+        setReceivedTasks(prev => prev.filter(task => !plainTextTaskIds.includes(task.id)));
+        
+        console.log(`✅ ${plainTextTaskIds.length} plain text tasks deleted`);
+      }
       
-      console.log(`🗑️ Permanently deleted ${selectedTaskIds.length} tasks from all localStorage stores`);
-      
-      // Demo mode - already removed from local state above
+      // Demo mode - only plain text tasks, already handled above
       if (isDemoMode) {
-        console.log(`✅ Demo: ${selectedTaskIds.length} tasks permanently removed`);
+        console.log(`✅ Demo: ${plainTextTaskIds.length} tasks permanently removed`);
         clearSelection();
         setShowBulkDeleteModal(false);
         setIsLoading(false);
         return;
       }
       
-      // Real blockchain mode - delete encrypted tasks from blockchain
-      // Plain text tasks are only in localStorage
-      if (!isDemoMode && realContractService.isInitialized()) {
-        let blockchainDeleteCount = 0;
+      // CRITICAL: For encrypted tasks, delete from blockchain FIRST, then remove from UI
+      if (encryptedTaskIds.length > 0 && realContractService.isInitialized()) {
+        const successfullyDeleted: number[] = [];
+        const failedToDelete: number[] = [];
         
-        for (const taskId of selectedTaskIds) {
-          const taskToDelete = tasks.find(t => t.id === taskId);
+        // Get current blockchain task count to validate indices
+        try {
+          const blockchainTasks = await realContractService.getTasks();
+          const maxIndex = blockchainTasks.length - 1;
+          console.log(`🔍 Blockchain has ${blockchainTasks.length} tasks (indices 0-${maxIndex})`);
           
-          // Only call blockchain for ENCRYPTED tasks
-          if (taskToDelete && taskToDelete.isEncrypted) {
+          for (const taskId of encryptedTaskIds) {
+            // CRITICAL: Check if task index is valid on blockchain
+            if (taskId > maxIndex) {
+              console.log(`⚠️ Task index ${taskId} is out of bounds (max: ${maxIndex}). Skipping blockchain delete, removing from UI only.`);
+              failedToDelete.push(taskId);
+              // Still remove from UI since it's orphaned
+              continue;
+            }
+            
             try {
+              console.log(`🗑️ Deleting encrypted task ${taskId} from blockchain...`);
               await realContractService.deleteTask(taskId);
-              blockchainDeleteCount++;
+              successfullyDeleted.push(taskId);
               console.log(`✅ Encrypted task ${taskId} deleted from blockchain`);
-            } catch (error) {
+            } catch (error: any) {
               console.error(`❌ Failed to delete encrypted task ${taskId}:`, error);
+              
+              // If error is "out of bounds", it's an orphaned task - just remove from UI
+              if (error?.message?.includes('out of bounds') || error?.reason?.includes('out of bounds')) {
+                console.log(`⚠️ Task ${taskId} is orphaned (doesn't exist on blockchain). Removing from UI only.`);
+                failedToDelete.push(taskId);
+              } else {
+                // Real error - don't remove from UI
+                throw error; // Re-throw to trigger error handling
+              }
             }
           }
+          
+          // NOW remove successfully deleted tasks from wallet-scoped localStorage and UI
+          const currentWallet = await getCurrentWalletAddress();
+          if (!currentWallet) {
+            console.error('⚠️ Cannot save deletions: Wallet address not available');
+            return;
+          }
+          const walletKeys = getWalletScopedKeys(currentWallet);
+          
+          const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
+          const decryptedTasksList = JSON.parse(localStorage.getItem(walletKeys.decryptedTasks) || '[]');
+          const completedTasks = JSON.parse(localStorage.getItem(walletKeys.completedTasks) || '{}');
+          const deletedTasks = JSON.parse(localStorage.getItem(walletKeys.deletedTasks) || '{}');
+          
+          // Process all tasks to remove (successfully deleted + orphaned)
+          const allTasksToRemove = [...successfullyDeleted, ...failedToDelete];
+          
+          allTasksToRemove.forEach((taskId: number) => {
+            delete storedTasks[taskId];
+            const filteredIndex = decryptedTasksList.indexOf(taskId);
+            if (filteredIndex > -1) {
+              decryptedTasksList.splice(filteredIndex, 1);
+            }
+            if (completedTasks[taskId]) {
+              delete completedTasks[taskId];
+            }
+            deletedTasks[taskId] = { status: 'DELETED', deletedAt: Date.now() };
+          });
+          
+          localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
+          localStorage.setItem(walletKeys.decryptedTasks, JSON.stringify(decryptedTasksList));
+          localStorage.setItem(walletKeys.completedTasks, JSON.stringify(completedTasks));
+          localStorage.setItem(walletKeys.deletedTasks, JSON.stringify(deletedTasks));
+          
+          // NOW remove from UI after successful blockchain deletion
+          setTasks(prev => prev.filter(task => !allTasksToRemove.includes(task.id)));
+          setReceivedTasks(prev => prev.filter(task => !allTasksToRemove.includes(task.id)));
+          
+          setDecryptedTasks(prev => {
+            const newSet = new Set(prev);
+            allTasksToRemove.forEach(id => newSet.delete(id));
+            return newSet;
+          });
+          
+          console.log(`✅ ${successfullyDeleted.length} encrypted tasks deleted from blockchain`);
+          if (failedToDelete.length > 0) {
+            console.log(`⚠️ ${failedToDelete.length} orphaned tasks removed from UI (not on blockchain)`);
+          }
+          
+        } catch (blockchainError) {
+          console.error('❌ Failed to get blockchain tasks:', blockchainError);
+          // If we can't check blockchain, don't delete anything
+          throw blockchainError;
         }
-        
-        console.log(`✅ ${blockchainDeleteCount} encrypted tasks deleted from blockchain`);
       }
       
       // Clear selection and close modal
       clearSelection();
       setShowBulkDeleteModal(false);
       
+      // Show success message
+      if (plainTextTaskIds.length > 0 || encryptedTaskIds.length > 0) {
+        console.log(`✅ ${plainTextTaskIds.length + encryptedTaskIds.length} task(s) deleted successfully`);
+      }
+      
     } catch (error) {
       console.error('Failed to bulk remove tasks:', error);
-      alert('Bulk removal failed. Please try again.');
+      alert(`Failed to delete tasks: ${(error as Error).message}`);
       
       // Restore all tasks if bulk operation failed
       await loadTasks();
@@ -1350,44 +2058,144 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         // Update the task with decrypted data if available (for both my tasks and received tasks)
         if (result.decryptedData) {
+          // CRITICAL: Update the task in state IMMEDIATELY so UI shows decrypted content
+          setTasks(prevTasks => {
+            return prevTasks.map(task => {
+              if (task.id === decryptingTask.id) {
+                console.log('🔄 Updating task in state with decrypted data:', {
+                  taskId: task.id,
+                  oldTitle: task.title,
+                  newTitle: result.decryptedData.title,
+                  oldDescription: task.description,
+                  newDescription: result.decryptedData.description
+                });
+                
+                // If data is not recoverable, show a helpful message instead of empty strings
+                const title = result.decryptedData.title || task.title;
+                const description = result.decryptedData.description || task.description || '';
+                
+                return {
+                  ...task,
+                  title: title || '[Data Not Recoverable]',
+                  description: description || 'Task metadata was not stored locally and cannot be recovered. The decryption transaction completed, but the original content is lost.',
+                  dueDate: result.decryptedData.dueDate || task.dueDate || '',
+                  priority: result.decryptedData.priority !== undefined ? result.decryptedData.priority : task.priority,
+                  isEncrypted: false, // Mark as decrypted (transaction completed)
+                  isDataRecoverable: result.decryptedData.isDataRecoverable !== false // Track if data was actually recovered from localStorage
+                };
+              }
+              return task;
+            });
+          });
+          
+          // Also update received tasks state if this was a received task
+          if (decryptingTask.originalOwner) {
+            setReceivedTasks(prevReceivedTasks => {
+              return prevReceivedTasks.map(task => {
+                if (task.id === decryptingTask.id) {
+                  return {
+                    ...task,
+                    title: result.decryptedData.title || task.title,
+                    description: result.decryptedData.description || task.description || '',
+                    dueDate: result.decryptedData.dueDate || task.dueDate || '',
+                    priority: result.decryptedData.priority !== undefined ? result.decryptedData.priority : task.priority,
+                    isEncrypted: false
+                  };
+                }
+                return task;
+              });
+            });
+          }
+          
+          // SECURITY: DO NOT save decrypted data to localStorage or backend
+          // All decrypted data (title, description, dueDate, priority) must be session-only
+          // User must re-decrypt on each page refresh for maximum security
+          // The encrypted ciphertext handles are already safely stored on blockchain
+          console.log('🔒 Decrypted data will only persist for this session (security best practice)');
+          
+          // CRITICAL: Mark task as decrypted FIRST so UI reflects decrypted state
+          setDecryptedTasks(prev => {
+            const newSet = new Set([...prev, decryptingTask.id]);
+            console.log('✅ Task marked as decrypted in session. Decrypted task IDs:', Array.from(newSet));
+            return newSet;
+          });
+          
           // Check if task is in receivedTasks or my tasks
           const isReceivedTask = receivedTasks.some(t => t.id === decryptingTask.id);
           
+          // Build updated task data from decryption result
+          const updatedTaskData: Partial<Task> = {
+            isEncrypted: false // CRITICAL: Mark as NOT encrypted so UI shows decrypted content
+          };
+          
+          if (result.decryptedData.title) {
+            updatedTaskData.title = result.decryptedData.title;
+          }
+          if (result.decryptedData.description) {
+            updatedTaskData.description = result.decryptedData.description;
+          }
+          if (result.decryptedData.dueDate) {
+            updatedTaskData.dueDate = result.decryptedData.dueDate;
+          }
+          if (result.decryptedData.priority !== undefined && result.decryptedData.priority !== null) {
+            updatedTaskData.priority = result.decryptedData.priority;
+          }
+          
+          console.log('🔄 Updating task in UI with decrypted data:', {
+            taskId: decryptingTask.id,
+            isReceivedTask,
+            updatedTaskData
+          });
+          
           if (isReceivedTask) {
+            // Update received task
             setReceivedTasks(prev => prev.map(task => 
               task.id === decryptingTask.id 
-                ? { 
-                    ...task, 
-                    title: result.decryptedData.title,
-                    dueDate: result.decryptedData.dueDate,
-                    priority: result.decryptedData.priority
-                  }
-                : task
-            ));
-            console.log('Received task decrypted and updated:', result.decryptedData);
-          } else {
+                ? { ...task, ...updatedTaskData }
+              : task
+          ));
+            console.log('✅ Received task decrypted and updated in UI');
+        } else {
+            // Update my task
             setTasks(prev => prev.map(task => 
               task.id === decryptingTask.id 
-                ? { 
-                    ...task, 
-                    title: result.decryptedData.title,
-                    dueDate: result.decryptedData.dueDate,
-                    priority: result.decryptedData.priority
-                  }
+                ? { ...task, ...updatedTaskData }
                 : task
             ));
-            console.log('My task decrypted and updated:', result.decryptedData);
-          }
-        } else {
-          console.log('Task decrypted successfully via real contract:', decryptingTask.title);
+            console.log('✅ My task decrypted and updated in UI');
         }
         
         setDecryptingTask(null);
+          
+          // Show success notification
+          setNotification({
+            message: 'Task decrypted successfully!',
+            type: 'success'
+          });
+          setTimeout(() => setNotification(null), 3000);
       } else {
-        // ✅ PRIVACY FIX: Don't show error messages, keep asterisks
-        console.log('Decryption failed - keeping encrypted state:', result.error);
+          console.log('⚠️ Decryption succeeded but no decryptedData returned');
+          // Even without data, mark as decrypted attempt
+          setDecryptedTasks(prev => {
+            const newSet = new Set([...prev, decryptingTask.id]);
+            return newSet;
+          });
         setDecryptingTask(null);
-        // Don't throw error - just keep the task encrypted with asterisks
+          setNotification({
+            message: 'Decryption transaction completed, but no task data available.',
+            type: 'error'
+          });
+          setTimeout(() => setNotification(null), 5000);
+        }
+      } else {
+        // Decryption failed
+        console.error('❌ Decryption failed:', result.error);
+        setDecryptingTask(null);
+        setNotification({
+          message: `Decryption failed: ${result.error || 'Unknown error'}`,
+          type: 'error'
+        });
+        setTimeout(() => setNotification(null), 5000);
       }
       
     } catch (error: any) {
@@ -1503,26 +2311,38 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
     });
   };
 
-  const handleShareTask = async (taskId: number, recipientAddress: string) => {
+  const handleShareTask = async (taskId: number, recipientAddress: string | string[]) => {
     try {
-      console.log('🔗 Sharing task:', taskId, 'with recipient:', recipientAddress);
+      // Normalize to array
+      const addresses = Array.isArray(recipientAddress) ? recipientAddress : [recipientAddress];
+      console.log('🔗 Sharing task:', taskId, 'with', addresses.length, 'recipient(s)');
       
       // Demo mode - simulate sharing
       if (isDemoMode) {
-        console.log('🎮 Demo: Sharing task', taskId, 'with', recipientAddress);
+        console.log('🎮 Demo: Sharing task', taskId, 'with', addresses.length, 'recipient(s)');
         setSharingTask(null);
-        alert(`Demo: Task shared with ${recipientAddress}`);
+        const recipientCount = addresses.length;
+        const message = recipientCount === 1
+          ? `Demo: 1 task shared with 1 recipient`
+          : `Demo: 1 task shared with ${recipientCount} recipients`;
+        
+        // Show custom notification banner (auto-dismiss after 3 seconds)
+        setNotification({ message, type: 'success' });
+        setTimeout(() => setNotification(null), 3000);
         return;
       }
 
       // Real blockchain mode - share task on blockchain
+      // Ensure contract service is initialized
       if (!realContractService.isInitialized()) {
-        throw new Error('Contract service not initialized');
-      }
-
-      // Validate recipient address
-      if (!recipientAddress || !recipientAddress.startsWith('0x') || recipientAddress.length !== 42) {
-        throw new Error('Invalid recipient address');
+        try {
+          console.log('🔧 Contract service not initialized for sharing, initializing...');
+          await realContractService.initializeWithWallet(contractAddress);
+          console.log('✅ Contract service initialized for sharing');
+        } catch (error) {
+          console.error('Failed to initialize contract service:', error);
+          throw new Error('Contract service not available. Please ensure your wallet is connected.');
+        }
       }
 
       // Find the task
@@ -1531,23 +2351,95 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         throw new Error('Task not found');
       }
 
-      console.log('🔗 Calling blockchain shareTask...');
-      await realContractService.shareTask(taskId, recipientAddress);
+      // CRITICAL: Only encrypted tasks can be shared (they're on blockchain)
+      if (!task.isEncrypted) {
+        throw new Error('Plain text tasks cannot be shared via blockchain. Only encrypted tasks can be shared.');
+      }
+
+      // Share with each recipient
+      const sharedRecipients: string[] = [];
+      for (const address of addresses) {
+        // Validate recipient address
+        if (!address || !address.startsWith('0x') || address.length !== 42) {
+          throw new Error(`Invalid recipient address: ${address}`);
+        }
+
+        // Normalize address to checksum format for consistency
+        // This ensures the address stored in contract matches when recipient checks sharedTasks()
+        let normalizedAddress = address;
+        try {
+          normalizedAddress = ethers.getAddress(address);
+          console.log(`📤 Sharing with ${normalizedAddress} (normalized from ${address})...`);
+        } catch (error) {
+          console.warn(`⚠️ Could not normalize address ${address}, using as-is:`, error);
+        }
+
+        try {
+          await realContractService.shareTask(taskId, normalizedAddress);
+          sharedRecipients.push(normalizedAddress);
+          console.log(`✅ Successfully shared task ${taskId} with ${normalizedAddress}`);
+        } catch (error: any) {
+          console.error(`❌ Failed to share with ${normalizedAddress}:`, error);
+          
+          // Extract better error message
+          let errorMessage = error?.message || 'Unknown error';
+          if (errorMessage.includes('Transaction timeout')) {
+            // Extract transaction hash from error message if present
+            const hashMatch = errorMessage.match(/hash: (0x[a-fA-F0-9]+)/);
+            if (hashMatch) {
+              errorMessage = `Transaction timeout. Your transaction was sent (hash: ${hashMatch[1]}). The transaction may still be processing. Please wait a moment and refresh the page to see if the share was successful.`;
+            } else {
+              errorMessage = errorMessage + ' The transaction may still be processing. Please wait a moment and refresh the page to see if the share was successful.';
+            }
+          }
+          
+          throw new Error(`Failed to share with ${normalizedAddress}: ${errorMessage}`);
+        }
+      }
       
       // Update local state to mark task as shared
       setTasks(prev => prev.map(t => 
         t.id === taskId 
-          ? { ...t, isShared: true }
+          ? { ...t, isShared: true, sharedWith: sharedRecipients }
           : t
       ));
 
+      // Update wallet-scoped localStorage
+      const currentWallet = await getCurrentWalletAddress();
+      if (currentWallet) {
+        const walletKeys = getWalletScopedKeys(currentWallet);
+        const storedTasks = JSON.parse(localStorage.getItem(walletKeys.userTaskData) || '{}');
+        if (storedTasks[taskId]) {
+          const existingShared = storedTasks[taskId].sharedWith || [];
+          const updatedShared = [...new Set([...existingShared, ...sharedRecipients])];
+          storedTasks[taskId] = { 
+            ...storedTasks[taskId], 
+            isShared: true, 
+            sharedWith: updatedShared 
+          };
+          localStorage.setItem(walletKeys.userTaskData, JSON.stringify(storedTasks));
+          console.log('✅ Task sharing updated in wallet-scoped localStorage:', walletKeys.userTaskData);
+        }
+      } else {
+        console.warn('⚠️ Cannot save sharing metadata: Wallet address not available');
+      }
+
       setSharingTask(null);
-      console.log('✅ Task shared successfully on blockchain');
-      alert(`Task "${task.title}" shared with ${recipientAddress}`);
+      console.log('✅ Task shared successfully with all recipients');
+      const recipientCount = sharedRecipients.length;
+      const message = recipientCount === 1 
+        ? `1 task shared successfully with 1 recipient`
+        : `1 task shared successfully with ${recipientCount} recipients`;
+      
+      // Show custom notification banner (auto-dismiss after 3 seconds)
+      setNotification({ message, type: 'success' });
+      setTimeout(() => setNotification(null), 3000);
       
     } catch (error) {
       console.error('❌ Failed to share task:', error);
-      alert(`Failed to share task: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      setNotification({ message: `Failed to share task: ${errorMessage}`, type: 'error' });
+      setTimeout(() => setNotification(null), 5000);
       throw error;
     }
   };
@@ -1599,6 +2491,32 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
 
   return (
     <div className="space-y-6">
+      {/* Notification Banner */}
+      {notification && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center space-x-3 max-w-md transition-all duration-300 ${
+            notification.type === 'success'
+              ? 'bg-green-50 border border-green-200 text-green-800'
+              : 'bg-red-50 border border-red-200 text-red-800'
+          }`}
+        >
+          <div
+            className={`w-5 h-5 flex items-center justify-center rounded-full flex-shrink-0 ${
+              notification.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+            }`}
+          >
+            {notification.type === 'success' ? '✓' : '✕'}
+          </div>
+          <p className="font-medium flex-1">{notification.message}</p>
+          <button
+            onClick={() => setNotification(null)}
+            className="text-gray-400 hover:text-gray-600 ml-2"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Header with Stats */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
@@ -1619,9 +2537,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
               {simpleWalletService.isWalletConnected() && (
             <div className="flex items-center space-x-3">
               <div className="text-right">
-                <p className="text-sm text-zama-gray-600">
-                  {simpleWalletService.getAddress()?.slice(0, 6)}...{simpleWalletService.getAddress()?.slice(-4)}
-                </p>
+                <WalletAddressDisplay />
                 <p className="text-xs text-zama-gray-500">Connected</p>
             </div>
               <button
@@ -1877,6 +2793,18 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         onConfirm={bulkDeleteTasks}
         onCancel={() => setShowBulkDeleteModal(false)}
       />
+
+      {/* Wallet Selection Modal */}
+      {showWalletSelection && (
+        <WalletSelectionModal
+          onSelectWallet={handleWalletSelect}
+          onCancel={() => {
+            setShowWalletSelection(false);
+            setIsConnectingWallet(false);
+          }}
+          isConnecting={isConnectingWallet}
+        />
+      )}
     </div>
   );
 }

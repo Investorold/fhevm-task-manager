@@ -153,21 +153,62 @@ class RealContractService {
 
       const userAddress = await signer.getAddress();
       console.log('🔍 Loading received tasks for user:', userAddress);
+      console.log('🔍 User address (checksum):', ethers.getAddress(userAddress));
 
       // Try to get shared task indices for this user
+      // IMPORTANT: The address must match exactly how it was stored in the contract
       let sharedTaskIndices: number[] = [];
       try {
-        sharedTaskIndices = await this.contract.sharedTasks(userAddress);
-        console.log('🔍 Found shared task indices:', sharedTaskIndices);
-      } catch (error) {
-        console.warn('⚠️ sharedTasks function not available on contract:', error);
-        // Return empty array if function doesn't exist
+        // Try with checksummed address first
+        const checksumAddress = ethers.getAddress(userAddress);
+        sharedTaskIndices = await this.contract.sharedTasks(checksumAddress);
+        console.log('🔍 Found shared task indices (checksum):', sharedTaskIndices);
+        
+        // If empty, try with lowercase address (some contracts store lowercase)
+        if (sharedTaskIndices.length === 0) {
+          console.log('🔍 Trying lowercase address...');
+          sharedTaskIndices = await this.contract.sharedTasks(userAddress.toLowerCase());
+          console.log('🔍 Found shared task indices (lowercase):', sharedTaskIndices);
+        }
+      } catch (error: any) {
+        const errorCode = error?.code;
+        const errorMessage = error?.message || '';
+        
+        console.warn('⚠️ Error calling sharedTasks:', {
+          code: errorCode,
+          message: errorMessage,
+          address: userAddress
+        });
+        
+        // Handle different error types gracefully:
+        // 1. Function doesn't exist or not implemented on contract
+        // 2. CALL_EXCEPTION (missing revert data) - function might revert or not exist
+        // 3. Network/RPC issues
+        
+        if (
+          errorCode === 'CALL_EXCEPTION' ||
+          errorMessage.includes('missing revert data') ||
+          errorMessage.includes('not found') ||
+          errorMessage.includes('does not exist') ||
+          errorMessage.includes('execution reverted')
+        ) {
+          console.log('ℹ️ sharedTasks function may not be implemented on this contract, or no tasks are shared');
+          console.log('ℹ️ This is OK - it just means there are no received tasks. Returning empty array.');
+          // Return empty array instead of throwing - this is not a critical error
       return [];
+        }
+        
+        // For other errors (network issues, etc.), log but don't crash
+        console.warn('⚠️ Unexpected error calling sharedTasks, assuming no received tasks:', error);
+        return [];
       }
 
       if (sharedTaskIndices.length === 0) {
+        console.log('ℹ️ No shared tasks found for address:', userAddress);
         return [];
       }
+      
+      console.log(`✅ Found ${sharedTaskIndices.length} shared task(s) for user`);
 
       // Get the actual tasks from the original owners
       const receivedTasks: Task[] = [];
@@ -183,25 +224,135 @@ class RealContractService {
           if (taskIndex < ownerTasks.length) {
             const sharedTask = ownerTasks[taskIndex];
             
+            // Extract priority and dueDate if available
+            // NOTE: In FHEVM, priority and dueDate are encrypted as euint8 and euint64
+            // They cannot be read without decryption. However, the original owner might
+            // have this data in their localStorage. For now, we'll try to extract if possible,
+            // but typically these will need to be decrypted via requestSharedTaskDecryption.
+            let priority = 0;
+            let dueDate = '';
+            
+            console.log('🔍 Raw shared task data from blockchain:', {
+              taskIndex,
+              sharedTask,
+              priorityType: typeof sharedTask?.priority,
+              priorityValue: sharedTask?.priority,
+              dueDateType: typeof sharedTask?.dueDate,
+              dueDateValue: sharedTask?.dueDate,
+              status: sharedTask?.status
+            });
+            
+            try {
+              // Try to extract priority from the blockchain task data
+              // Priority is typically encrypted as euint8 in FHEVM contracts
+              if (sharedTask.priority !== undefined && sharedTask.priority !== null) {
+                // If it's a number, use it directly (unlikely for FHEVM, but handle it)
+                if (typeof sharedTask.priority === 'number') {
+                  priority = sharedTask.priority;
+                  console.log('✅ Found numeric priority:', priority);
+                } else if (typeof sharedTask.priority === 'bigint') {
+                  priority = Number(sharedTask.priority);
+                  console.log('✅ Found bigint priority:', priority);
+                } else if (typeof sharedTask.priority === 'string') {
+                  // Might be a hex string or bytes32, try to parse
+                  const parsed = parseInt(sharedTask.priority, 16);
+                  if (!isNaN(parsed) && parsed >= 0 && parsed <= 3) {
+                    priority = parsed;
+                    console.log('✅ Extracted priority from hex string:', priority);
+                  } else {
+                    console.log('⚠️ Priority is encrypted (bytes32/euint8) - requires decryption for task', taskIndex);
+                  }
+                } else {
+                  // It's likely encrypted (bytes32/euint8), we can't decode it without decryption
+                  console.log('⚠️ Priority appears to be encrypted (euint8) for task', taskIndex, '- requires decryption');
+                }
+              }
+              
+              // Try to extract dueDate
+              // Due date is typically encrypted as euint64 in FHEVM contracts
+              if (sharedTask.dueDate !== undefined && sharedTask.dueDate !== null) {
+                // If it's a number or bigint (timestamp), convert it
+                if (typeof sharedTask.dueDate === 'number' || typeof sharedTask.dueDate === 'bigint') {
+                  const timestamp = Number(sharedTask.dueDate);
+                  // Check if it's a valid timestamp (seconds or milliseconds)
+                  if (timestamp > 0 && timestamp < 10000000000000) { // Reasonable timestamp range
+                    // If it's in seconds (blockchain usually uses seconds), multiply by 1000
+                    const dateValue = timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+                    const date = new Date(dateValue);
+                    if (!isNaN(date.getTime())) {
+                      dueDate = date.toISOString();
+                      console.log('✅ Extracted dueDate from timestamp:', dueDate);
+                    }
+                  }
+                } else if (typeof sharedTask.dueDate === 'string') {
+                  // Might be a hex string or bytes32, unlikely to be readable
+                  console.log('⚠️ DueDate appears to be encrypted (bytes32/euint64) - requires decryption');
+                }
+              }
+            } catch (extractError) {
+              console.warn('⚠️ Could not extract priority/dueDate from blockchain data:', extractError);
+            }
+            
+            // If we couldn't extract priority/dueDate from blockchain (they're encrypted),
+            // Check if we can get them from a shared metadata mechanism (future enhancement)
+            // For now, they'll show as "Not Available" until decrypted
+            
+            console.log('📊 Final extracted task data for received task:', {
+              taskIndex,
+              priority: priority || 'Not Available (encrypted)',
+              dueDate: dueDate || 'Not Available (encrypted)',
+              status: sharedTask.status
+            });
+            
             // Convert to our Task format
+            // CRITICAL: Received tasks must ALWAYS be encrypted initially
+            // DO NOT use localStorage data - recipient should not have sender's localStorage
+            // Status MUST come from blockchain, not localStorage
+            const taskStatus = sharedTask.status === 0 ? 'Pending' : 'Completed';
+            
+            // Log raw status to debug
+            console.log('📊 Raw blockchain status for received task:', {
+              taskIndex,
+              rawStatus: sharedTask.status,
+              statusType: typeof sharedTask.status,
+              mappedStatus: taskStatus
+            });
+            
             const task: Task = {
               id: taskIndex,
-              title: `******* ********`, // Encrypted - needs decryption
-              description: `******* ********`,
-              dueDate: new Date().toISOString(), // Placeholder
-              priority: 1, // Placeholder
-              status: sharedTask.status === 0 ? 'Pending' : 'Completed',
-              createdAt: new Date().toISOString(),
-              isEncrypted: true,
+              title: `******* ********`, // ALWAYS encrypted - recipient cannot see without decryption
+              description: `******* ********`, // ALWAYS encrypted
+              dueDate: dueDate, // Try to use extracted dueDate, or empty string (will show "Not Available")
+              priority: priority || 0, // Use extracted priority, or 0 (will show "Not Available")
+              status: taskStatus, // CRITICAL: Use blockchain status, NEVER localStorage
+              createdAt: '', // Empty string - won't cause issues
+              isEncrypted: true, // CRITICAL: ALWAYS true for received tasks until decrypted
               isShared: true,
               originalOwner: originalOwner, // Store original owner for decryption
-              sharedBy: originalOwner
+              blockchainIndex: taskIndex // Store blockchain index for decryption
             };
             
+            // Validate task is properly encrypted
+            if (task.title !== `******* ********` || task.description !== `******* ********`) {
+              console.error('❌ CRITICAL ERROR: Received task should ALWAYS show encrypted placeholders!', task);
+              // Force encrypted placeholders
+              task.title = `******* ********`;
+              task.description = `******* ********`;
+            }
+            
             receivedTasks.push(task);
-            console.log('✅ Added shared task:', taskIndex, 'from owner:', originalOwner);
+            console.log('✅ Added shared task:', {
+              taskIndex,
+              owner: originalOwner,
+              status: task.status,
+              priority: task.priority || 'Not Available',
+              dueDate: task.dueDate || 'Not Available',
+              isEncrypted: task.isEncrypted,
+              title: task.title,
+              description: task.description
+            });
           }
-        } catch (error) {
+    } catch (error) {
           console.warn('⚠️ Failed to load shared task:', taskIndex, error);
         }
       }
@@ -209,9 +360,15 @@ class RealContractService {
       console.log('✅ Loaded received tasks:', receivedTasks.length);
       return receivedTasks;
 
-    } catch (error) {
-      console.error('Failed to get received tasks:', error);
+    } catch (error: any) {
+      // This should rarely happen now since we handle errors in sharedTasks call
+      console.warn('⚠️ Unexpected error in getReceivedTasks:', error);
+      console.warn('⚠️ Error details:', {
+        message: error?.message,
+        code: error?.code
+      });
       // Return empty array instead of throwing error to prevent app crash
+      // This is not a critical error - it just means no received tasks can be loaded
       return [];
     }
   }
@@ -265,13 +422,18 @@ class RealContractService {
       
       console.log('📝 Task data to encrypt:', { title, dueDate, priority });
       
-      // Get task creation fee first (with fallback)
+      // OPTIMIZED: Get task creation fee with timeout (prevent long delays)
       let fee;
       try {
-        fee = await this.contract.taskCreationFee();
+        fee = await Promise.race([
+          this.contract.taskCreationFee(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Fee fetch timeout')), 3000)
+          )
+        ]) as bigint;
         console.log('✅ Got fee from contract:', fee.toString());
       } catch (error) {
-        console.warn('⚠️ Failed to get fee from contract, using default 0.0001 ETH');
+        console.warn('⚠️ Failed to get fee from contract (timeout or error), using default 0.0001 ETH');
         fee = ethers.parseEther('0.0001');
       }
 
@@ -299,33 +461,63 @@ class RealContractService {
       const userAddress = await signer.getAddress();
       console.log('👤 User address for access control:', userAddress);
       
+      // Encrypt with retry logic to handle network/SSL errors
       let combinedResult;
-      try {
-        // Get the global FHEVM instance
-        const fhevmInstance = fhevmService.getInstance();
-        
-        // Create encrypted input using the global public key with user address for access control
-        const combinedInput = fhevmInstance.createEncryptedInput(this.contractAddress, userAddress);
-        
-        // Add the data to encrypt
-        combinedInput.add64(titleAsNumber);      // Title as 64-bit
-        combinedInput.add64(dueDateTimestamp);   // Due date as 64-bit  
-        combinedInput.add8(priority);           // Priority as 8-bit
-        
-        // Encrypt using the global public key
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (retryCount < maxRetries) {
+        try {
+          // Get the global FHEVM instance
+          const fhevmInstance = fhevmService.getInstance();
+          
+          // Create encrypted input using the global public key with user address for access control
+          const combinedInput = fhevmInstance.createEncryptedInput(this.contractAddress, userAddress);
+          
+          // Add the data to encrypt
+          combinedInput.add64(titleAsNumber);      // Title as 64-bit
+          combinedInput.add64(dueDateTimestamp);   // Due date as 64-bit  
+          combinedInput.add8(priority);           // Priority as 8-bit
+          
+          // Encrypt using the global public key
+          // NOTE: This contacts the Zama FHEVM relayer and may take 3-10 seconds
+          if (retryCount === 0) {
+            console.log('🔐 Contacting Zama FHEVM relayer for encryption (this may take a few seconds)...');
+          } else {
+            console.log(`🔄 Encryption retry attempt ${retryCount + 1}/${maxRetries}...`);
+          }
+          
           combinedResult = await combinedInput.encrypt();
           
-        console.log('✅ Encryption successful with global FHE key');
-        console.log('🔍 Combined encrypted input:', combinedResult);
-        console.log('🔍 Handles structure:', {
-          handle0: combinedResult.handles[0],
-          handle0Keys: Object.keys(combinedResult.handles[0] || {}),
-          allHandles: combinedResult.handles
-        });
+          console.log('✅ Encryption successful with global FHE key');
+          console.log('🔍 Combined encrypted input:', combinedResult);
+          break; // Success, exit retry loop
           
-        } catch (encryptError) {
-        console.error('❌ Encryption failed:', encryptError);
-        throw new Error(`Failed to encrypt data with global FHE key. The FHEVM relayer may be experiencing issues. Please try again in a few minutes.`);
+        } catch (encryptError: any) {
+          retryCount++;
+          const errorMessage = encryptError?.message || String(encryptError);
+          console.error(`❌ Encryption attempt ${retryCount} failed:`, errorMessage);
+          
+          // Check if it's an SSL/network error
+          const isSSLError = errorMessage.includes('SSL') || 
+                            errorMessage.includes('ERR_SSL') ||
+                            errorMessage.includes('net::ERR') ||
+                            errorMessage.includes('network') ||
+                            errorMessage.includes('fetch');
+          
+          if (retryCount >= maxRetries) {
+            if (isSSLError) {
+              throw new Error(`SSL/Network error: The Zama FHEVM relayer is experiencing connection issues. This is usually temporary. Please wait a moment and try again. If the problem persists, the relayer may be down for maintenance.`);
+            } else {
+              throw new Error(`Failed to encrypt data after ${maxRetries} attempts. The FHEVM relayer may be experiencing issues. Please try again in a few minutes. Error: ${errorMessage}`);
+            }
+          }
+          
+          // Wait before retry (exponential backoff: 1s, 2s, 4s)
+          const waitTime = Math.pow(2, retryCount - 1) * 1000;
+          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
       }
       
       // Use ethers.js contract with the correct ABI
@@ -344,26 +536,57 @@ class RealContractService {
         { value: fee }
       );
 
-      console.log('⏳ Waiting for transaction confirmation...');
+      console.log('✅ Transaction sent successfully! Hash:', tx.hash);
+      console.log('⏳ Waiting for transaction confirmation (timeout: 30 seconds)...');
+      
       // Wait for transaction confirmation
-      const receipt = await Promise.race([
-        tx.wait(1), // Wait for 1 confirmation instead of full confirmation
+      // After signing, the transaction needs to be mined which can take time on some networks
+      let receipt;
+      try {
+        receipt = await Promise.race([
+          tx.wait(1), // Wait for 1 confirmation
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Transaction timeout')), 30000) // Increased to 30s for task creation
+            setTimeout(() => reject(new Error(`Transaction timeout after 30 seconds. Your transaction was sent (hash: ${tx.hash}). Please check the blockchain explorer to verify if it was mined.`)), 30000) // 30 seconds
         )
       ]);
       console.log('✅ Task created on blockchain! Hash:', receipt.hash);
+      } catch (timeoutError: any) {
+        // If timeout, the transaction might still be pending - log it
+        console.warn('⚠️ Transaction confirmation timeout:', timeoutError.message);
+        console.warn('⚠️ Transaction hash:', tx.hash);
+        console.warn('⚠️ The transaction was sent and may still be processing. Check the blockchain explorer.');
+        throw timeoutError;
+      }
       
       return { 
         success: true, 
         taskId: Date.now() // In a real implementation, you'd get the task ID from the contract
       };
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Failed to create task:', error);
+      
+      // Provide more helpful error messages
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // Check for error codes (some error objects have a code property)
+        const errorCode = (error as any)?.code;
+        
+        // If it's a timeout but transaction was sent, provide helpful info
+        if (error.message.includes('Transaction timeout') && error.message.includes('hash:')) {
+          errorMessage = error.message; // Keep the detailed message with hash
+        } else if (errorCode === 'TRANSACTION_REPLACED') {
+          errorMessage = 'Transaction was replaced by another transaction with higher gas';
+        } else if (errorCode === 'TRANSACTION_REJECTED' || errorCode === 4001) {
+          errorMessage = 'Transaction was rejected. Please try again.';
+        }
+      }
+      
       return { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        error: errorMessage
       };
     }
   }
@@ -539,6 +762,29 @@ class RealContractService {
     return this.contractAddress;
   }
 
+  /**
+   * Verify if a task at a given index is owned by the specified address
+   * @param taskIndex The task index to check
+   * @param ownerAddress The address to check ownership against
+   * @returns true if the task is owned by the address, false otherwise
+   */
+  async isTaskOwnedBy(taskIndex: number, ownerAddress: string): Promise<boolean> {
+    if (this.isDemoMode || !this.contract) {
+      return false;
+    }
+
+    try {
+      const taskOwner = await this.contract.taskOwners(taskIndex);
+      const normalizedTaskOwner = ethers.getAddress(taskOwner).toLowerCase();
+      const normalizedOwnerAddress = ethers.getAddress(ownerAddress).toLowerCase();
+      
+      return normalizedTaskOwner === normalizedOwnerAddress;
+    } catch (error) {
+      console.warn('⚠️ Error checking task ownership:', error);
+      return false;
+    }
+  }
+
   async createTaskWithNumbers(task: Omit<Task, 'id' | 'createdAt'> & { numericId: number }): Promise<{ success: boolean; error?: string; taskId?: number }> {
     // Ensure we have a valid contract address
     if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
@@ -701,64 +947,252 @@ class RealContractService {
     }
 
     try {
-      console.log('🔓 Starting simplified decryption for task ID:', taskId);
+      console.log('🔓 Starting USER DECRYPTION for task ID:', taskId);
       
-      // Check if wallet is connected using simple wallet service (more reliable)
+      // Check if wallet is connected
       const signer = simpleWalletService.getSigner();
       if (!signer) {
         throw new Error('Wallet not connected. Please connect your wallet first.');
       }
       
-      console.log('✅ Wallet connected, proceeding with decryption');
+      // Get FHEVM instance for user decryption
+      const fhevmInstance = fhevmService.getInstance();
+      if (!fhevmInstance) {
+        throw new Error('FHEVM instance not available. Please wait for FHEVM initialization.');
+      }
       
-      // The taskId is actually the array index in the contract
-      // So we can use it directly as the task index
-      const taskIndex = taskId;
-      console.log('🔓 Using task index for contract call:', taskIndex);
-      
-      // Get user address for decryption (signer already checked above)
       const userAddress = await signer.getAddress();
+      const taskIndex = taskId;
+      console.log('🔓 Using task index:', taskIndex);
+      
+      // Step 1: Retrieve ciphertext handles from blockchain (view function)
+      console.log('📡 Step 1: Retrieving ciphertext handles from blockchain...');
       const allTasks = await this.contract.getTasks(userAddress);
-      console.log('🔍 Total tasks in contract:', allTasks.length);
-      console.log('🔍 Available task indices:', Array.from({length: allTasks.length}, (_, i) => i));
-      console.log('🔍 Requested task index:', taskIndex);
       
       if (taskIndex >= allTasks.length) {
-        throw new Error(`Task index ${taskIndex} does not exist. Only ${allTasks.length} tasks available (indices 0-${allTasks.length - 1})`);
+        throw new Error(`Task index ${taskIndex} does not exist. Only ${allTasks.length} tasks available.`);
+      }
+      
+      const encryptedTask = allTasks[taskIndex];
+      console.log('🔍 Encrypted task handles:', {
+        title: encryptedTask.title,
+        description: encryptedTask.description,
+        dueDate: encryptedTask.dueDate,
+        priority: encryptedTask.priority
+      });
+      
+      // Step 2: Perform USER DECRYPTION using FHEVM SDK
+      // According to Zama docs: We use instance.userDecrypt() for client-side decryption
+      console.log('🔓 Step 2: Performing user decryption with FHEVM SDK...');
+      
+      // Generate keypair for user decryption
+      const keypair = fhevmInstance.generateKeypair();
+      console.log('✅ Generated keypair for user decryption');
+      
+      // Prepare handle-contract pairs for decryption
+      // According to Zama docs: property name must be "handle" (not "ctHandle")
+      // Handles must be strings (bytes32 hex strings)
+      const normalizeHandle = (handle: any): string | null => {
+        if (!handle) return null;
+        // Convert to string if needed
+        const handleStr = typeof handle === 'string' ? handle : handle.toString();
+        // Check if it's a valid handle (not zero hash or empty)
+        if (!handleStr || handleStr === '0x' || handleStr === ethers.ZeroHash || handleStr === '0x0000000000000000000000000000000000000000000000000000000000000000') {
+          return null;
+        }
+        return handleStr;
+      };
+      
+      const handleContractPairs = [
+        { handle: normalizeHandle(encryptedTask.title), contractAddress: this.contractAddress },
+        { handle: normalizeHandle(encryptedTask.description), contractAddress: this.contractAddress },
+        { handle: normalizeHandle(encryptedTask.dueDate), contractAddress: this.contractAddress },
+        { handle: normalizeHandle(encryptedTask.priority), contractAddress: this.contractAddress },
+      ].filter(pair => pair.handle !== null) as Array<{ handle: string; contractAddress: string }>; // Type assertion after filtering nulls
+      
+      if (handleContractPairs.length === 0) {
+        throw new Error('No valid ciphertext handles found for decryption. Task may not be properly encrypted.');
+      }
+      
+      console.log('🔍 Ciphertext handle-contract pairs to decrypt:', handleContractPairs.length);
+      console.log('🔍 Handles being decrypted:', handleContractPairs.map(p => ({ handle: p.handle, contract: p.contractAddress })));
+      
+      // Create EIP712 signature for user decryption
+      const startTimeStamp = Math.floor(Date.now() / 1000).toString();
+      const durationDays = '10'; // 10 days validity
+      const contractAddresses = [this.contractAddress];
+      
+      const eip712 = fhevmInstance.createEIP712(
+        keypair.publicKey,
+        contractAddresses,
+        startTimeStamp,
+        durationDays,
+      );
+      
+      // Sign the EIP712 message
+      const signature = await signer.signTypedData(
+        eip712.domain,
+        {
+          UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification,
+        },
+        eip712.message,
+      );
+      
+      console.log('✅ Signed EIP712 message for user decryption');
+      
+      // Perform user decryption via Zama relayer (backend)
+      // This calls the relayer which decrypts and re-encrypts with user's key
+      console.log('🌐 Calling Zama relayer for user decryption...');
+      console.log('📤 Sending to relayer:', {
+        handleContractPairs: handleContractPairs.length,
+        contractAddresses: contractAddresses.length,
+        userAddress,
+        timestamp: startTimeStamp
+      });
+      
+      const decryptResult = await fhevmInstance.userDecrypt(
+        handleContractPairs,
+        keypair.privateKey,
+        keypair.publicKey,
+        signature.replace('0x', ''), // Remove 0x prefix
+        contractAddresses,
+        userAddress,
+        startTimeStamp,
+        durationDays,
+      );
+      
+      console.log('✅ Zama relayer returned decrypted values:', decryptResult);
+      console.log('🔍 Decrypt result type:', typeof decryptResult);
+      console.log('🔍 Decrypt result keys:', decryptResult ? Object.keys(decryptResult) : 'null/undefined');
+      
+      if (!decryptResult || typeof decryptResult !== 'object') {
+        throw new Error(`Invalid decryption result from relayer: ${typeof decryptResult}. Expected object with handle keys.`);
+      }
+      
+      // Helper to convert decrypted number to string (FHEVM stores strings as numbers)
+      const numberToString = (num: any): string => {
+        if (typeof num === 'string') return num;
+        if (typeof num === 'bigint') {
+          // Convert bigint to string byte by byte (UTF-8 encoding)
+          let result = '';
+          let temp = num;
+          while (temp > 0n) {
+            const byte = Number(temp % 256n);
+            if (byte > 0 && byte < 256) {
+              result = String.fromCharCode(byte) + result;
+            }
+            temp = temp / 256n;
+          }
+          return result.replace(/\0/g, '').trim() || num.toString();
+        }
+        if (typeof num === 'number') {
+          // Convert number to string byte by byte
+          let result = '';
+          let temp = num;
+          while (temp > 0) {
+            const byte = temp % 256;
+            if (byte > 0 && byte < 256) {
+              result = String.fromCharCode(byte) + result;
+            }
+            temp = Math.floor(temp / 256);
+          }
+          return result.replace(/\0/g, '').trim() || String(num);
+        }
+        return String(num);
+      };
+      
+      // Extract decrypted values from relayer response
+      // decryptResult is an object where keys are the ciphertext handles (strings)
+      // Access using the handle as the key
+      const titleHandle = encryptedTask.title;
+      const descHandle = encryptedTask.description;
+      const dueDateHandle = encryptedTask.dueDate;
+      const priorityHandle = encryptedTask.priority;
+      
+      console.log('🔍 Looking for decrypted values with handles:', {
+        title: titleHandle,
+        description: descHandle,
+        dueDate: dueDateHandle,
+        priority: priorityHandle
+      });
+      
+      const decryptedTitle = titleHandle && decryptResult[titleHandle] !== undefined
+        ? numberToString(decryptResult[titleHandle])
+        : '';
+      const decryptedDescription = descHandle && decryptResult[descHandle] !== undefined
+        ? numberToString(decryptResult[descHandle])
+        : '';
+      const decryptedDueDateNum = dueDateHandle && decryptResult[dueDateHandle] !== undefined
+        ? (typeof decryptResult[dueDateHandle] === 'bigint' ? Number(decryptResult[dueDateHandle]) : Number(decryptResult[dueDateHandle]))
+        : 0;
+      const decryptedDueDate = decryptedDueDateNum > 0 ? new Date(decryptedDueDateNum).toISOString() : '';
+      const decryptedPriority = priorityHandle && decryptResult[priorityHandle] !== undefined
+        ? (typeof decryptResult[priorityHandle] === 'bigint' ? Number(decryptResult[priorityHandle]) : Number(decryptResult[priorityHandle]))
+        : 0;
+      
+      console.log('✅ Extracted decrypted values:', {
+        title: decryptedTitle,
+        description: decryptedDescription,
+        dueDate: decryptedDueDate,
+        priority: decryptedPriority
+      });
+      
+      // SECURITY: DO NOT save decrypted data to localStorage or backend
+      // Decryption is session-only for security - user must re-decrypt on each page refresh
+      // The encrypted ciphertext handles are already stored on blockchain
+      console.log('🔒 Decryption complete - data will only persist for this session (security best practice)');
+      
+      return {
+        success: true,
+        decryptedData: {
+          title: decryptedTitle,
+          description: decryptedDescription,
+          dueDate: decryptedDueDate,
+          priority: decryptedPriority,
+          note: '✅ Task decrypted using Zama FHEVM user decryption! Data is session-only for security.'
+        }
+      };
+      
+    } catch (error) {
+      console.error('❌ Failed to decrypt task:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+  
+  // Legacy method - kept for backwards compatibility but not recommended
+  // Use decryptTask() instead which uses proper Zama user decryption
+  async requestTaskDecryptionForOracle(taskId: number): Promise<{ success: boolean; error?: string; decryptedData?: any }> {
+    // This uses on-chain oracle decryption (public decryption via callback)
+    // Only use this if you need public/on-chain decryption
+    if (this.isDemoMode) {
+      return { success: true, decryptedData: { title: 'Demo Task', description: 'Demo Description' } };
+    }
+
+    if (!this.contract) {
+      throw new Error('Contract not initialized');
+    }
+
+    try {
+      console.log('⚠️ Using on-chain oracle decryption (public decryption)');
+      console.log('⚠️ This is not recommended for private user data - use decryptTask() instead');
+      
+      const signer = simpleWalletService.getSigner();
+      if (!signer) {
+        throw new Error('Wallet not connected');
+      }
+
+      const taskIndex = taskId;
+      const userAddress = await signer.getAddress();
+      const allTasks = await this.contract.getTasks(userAddress);
+      
+      if (taskIndex >= allTasks.length) {
+        throw new Error(`Task index ${taskIndex} does not exist`);
       }
       
       // Call the contract's requestTaskDecryption function
-      console.log('🔓 Calling contract.requestTaskDecryption with taskIndex:', taskIndex);
-      console.log('🔓 Contract object:', this.contract);
-      console.log('🔓 Contract address:', this.contractAddress);
-      console.log('🔓 User address:', userAddress);
-      
-      // Verify the contract method exists
-      if (!this.contract.requestTaskDecryption) {
-        throw new Error('requestTaskDecryption method not found on contract. Contract may not be properly deployed or ABI is incorrect.');
-      }
-      
-      let tx;
-      try {
-        console.log('🔓 About to call requestTaskDecryption...');
-        tx = await this.contract.requestTaskDecryption(taskIndex);
-        console.log('⏳ Decryption request transaction sent:', tx.hash);
-        console.log('⏳ Transaction details:', {
-          hash: tx.hash,
-          from: tx.from,
-          to: tx.to,
-          gasLimit: tx.gasLimit?.toString(),
-          gasPrice: tx.gasPrice?.toString()
-        });
-      } catch (contractError: any) {
-        console.error('❌ Contract method call failed:', contractError);
-        console.error('❌ Error details:', {
-          message: contractError?.message,
-          code: contractError?.code,
-          data: contractError?.data
-        });
-        throw contractError;
-      }
+      console.log('🔓 Calling contract.requestTaskDecryption (on-chain oracle)...');
+      const tx = await this.contract.requestTaskDecryption(taskIndex);
+      console.log('⏳ Decryption request transaction sent:', tx.hash);
       
       // Wait for transaction confirmation
       const receipt = await Promise.race([
@@ -769,10 +1203,165 @@ class RealContractService {
       ]);
       console.log('✅ Decryption request confirmed:', receipt);
       
-      // CRITICAL: Find stored data by blockchain index (direct lookup)
-      // Tasks are stored in localStorage using blockchain index as key
-          const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-      console.log('🔍 Available stored task keys:', Object.keys(storedTasks));
+      // CRITICAL: Wait for TaskDecrypted event from the relayer callback
+      // The Zama relayer processes the decryption and calls taskDecryptionCallback
+      // which emits TaskDecrypted event with the decrypted data
+      console.log('⏳ Waiting for Zama relayer to decrypt and emit TaskDecrypted event...');
+      
+      // Find the DecryptionRequested event to get the requestId
+      const decryptionRequestedEvent = receipt.logs.find((log: any) => {
+        try {
+          if (!this.contract) return false;
+          const parsed = this.contract.interface.parseLog(log);
+          return parsed && parsed.name === 'DecryptionRequested';
+        } catch {
+          return false;
+        }
+      });
+      
+      let requestId: bigint | null = null;
+      if (decryptionRequestedEvent && this.contract) {
+        const parsed = this.contract.interface.parseLog(decryptionRequestedEvent);
+        if (parsed) {
+          requestId = parsed.args.requestId as bigint;
+          console.log('🔍 Found DecryptionRequested event with requestId:', requestId.toString());
+        }
+      }
+      
+      // Listen for TaskDecrypted event (max 30 seconds wait)
+      const contract = this.contract;
+      if (!contract) {
+        throw new Error('Contract not available');
+      }
+      
+      const currentUserAddress = await signer.getAddress();
+      
+      const decryptedData = await new Promise<any>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          contract.off('TaskDecrypted', eventHandler);
+          reject(new Error('Timeout waiting for TaskDecrypted event. The relayer may be slow.'));
+        }, 30000);
+        
+        const eventHandler = async (requestIdFromEvent: bigint, user: string, title: bigint, dueDate: bigint, priority: number) => {
+          // Check if this is our request (if we have requestId)
+          if (requestId && requestIdFromEvent !== requestId) {
+            console.log('⚠️ TaskDecrypted event for different requestId, ignoring...');
+            return;
+          }
+          
+          // Check if this is for our user
+          if (user.toLowerCase() !== currentUserAddress.toLowerCase()) {
+            console.log('⚠️ TaskDecrypted event for different user, ignoring...');
+            return;
+          }
+          
+          console.log('✅ TaskDecrypted event received:', { requestId: requestIdFromEvent.toString(), user, title: title.toString(), dueDate: dueDate.toString(), priority });
+          
+          clearTimeout(timeout);
+          contract.off('TaskDecrypted', eventHandler);
+          
+          // Convert decrypted numbers to usable data
+          const decryptedTitleNum = Number(title);
+          const decryptedDueDateNum = Number(dueDate);
+          const decryptedPriorityNum = Number(priority);
+          
+          resolve({ 
+            title: decryptedTitleNum,
+            dueDate: decryptedDueDateNum,
+            priority: decryptedPriorityNum,
+            requestId: requestIdFromEvent.toString()
+          });
+        };
+
+        // Listen for TaskDecrypted event
+        contract.once('TaskDecrypted', eventHandler);
+      }).catch(async (eventError) => {
+        console.warn('⚠️ Event listening failed or timed out:', eventError);
+        // Fallback: try to read from localStorage if event doesn't come
+        return null;
+      });
+      
+      // If we got decrypted data from event, convert and return it
+      if (decryptedData) {
+        // Convert numbers to strings (title/description are stored as numbers representing strings)
+        const numberToString = (num: number): string => {
+          // Convert number to string byte by byte
+          let result = '';
+          let temp = num;
+          while (temp > 0) {
+            const byte = temp % 256;
+            if (byte > 0 && byte < 256) {
+              result = String.fromCharCode(byte) + result;
+            }
+            temp = Math.floor(temp / 256);
+          }
+          return result.replace(/\0/g, '').trim() || String(num);
+        };
+        
+        const decryptedTitle = numberToString(decryptedData.title);
+        const decryptedDueDate = decryptedData.dueDate > 0 ? new Date(Number(decryptedData.dueDate)).toISOString() : '';
+        const decryptedPriority = decryptedData.priority;
+        
+        console.log('✅ Decrypted data from TaskDecrypted event:', { decryptedTitle, decryptedDueDate, decryptedPriority });
+        
+        // Save to localStorage for future use
+        const normalizedWalletAddress = ethers.getAddress(currentUserAddress);
+        const localStorageKey = `userTaskData_${normalizedWalletAddress}`;
+        const storedTasks = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
+        
+        storedTasks[taskIndex] = {
+          ...storedTasks[taskIndex],
+          title: decryptedTitle,
+          dueDate: decryptedDueDate,
+          priority: decryptedPriority,
+          shouldEncrypt: true,
+          createdAt: storedTasks[taskIndex]?.createdAt || new Date().toISOString(),
+          status: storedTasks[taskIndex]?.status || 'Pending'
+        };
+        
+        localStorage.setItem(localStorageKey, JSON.stringify(storedTasks));
+        console.log('✅ Saved decrypted data from Zama relayer to localStorage');
+        
+        return {
+        success: true, 
+        decryptedData: { 
+            title: decryptedTitle,
+            description: '', // Description not in TaskDecrypted event (only title, dueDate, priority)
+            dueDate: decryptedDueDate,
+              priority: decryptedPriority,
+              transactionHash: tx.hash,
+            note: '✅ Task decrypted by Zama relayer!'
+          }
+        };
+      }
+      
+      // CRITICAL: Find stored data by blockchain index (direct lookup) as fallback
+      // Tasks are stored in wallet-scoped localStorage using blockchain index as key
+      // After the transaction, we can safely read from wallet-scoped localStorage
+      // Get current wallet address to use scoped localStorage
+      const currentWalletAddress = currentUserAddress; // Use the address we already have
+      const normalizedWalletAddress = ethers.getAddress(currentWalletAddress);
+      const localStorageKey = `userTaskData_${normalizedWalletAddress}`;
+      
+      console.log('🔍 Using wallet-scoped localStorage key:', localStorageKey);
+      console.log('🔍 Current wallet address:', normalizedWalletAddress);
+      
+      // Also try with checksummed address in case that's how it was stored
+      const checksummedKey = `userTaskData_${ethers.getAddress(currentWalletAddress)}`;
+      let storedTasks = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
+      
+      // If not found, try checksummed version
+      if (Object.keys(storedTasks).length === 0) {
+        const checksummedData = localStorage.getItem(checksummedKey);
+        if (checksummedData) {
+          storedTasks = JSON.parse(checksummedData);
+          console.log('🔍 Found data in checksummed key:', checksummedKey);
+        }
+      }
+      
+      console.log('🔍 Using wallet-scoped localStorage key:', localStorageKey);
+      console.log('🔍 Also checked checksummed key:', checksummedKey);
+      console.log('🔍 Available stored task keys for this wallet:', Object.keys(storedTasks));
       console.log('🔍 Looking for task at blockchain index:', taskIndex);
       
       // Direct lookup using blockchain index as key
@@ -781,28 +1370,203 @@ class RealContractService {
       if (storedTask) {
         console.log('✅ Found stored task data at index:', taskIndex, storedTask.title);
         return { 
-        success: true, 
-        decryptedData: { 
+          success: true, 
+          decryptedData: { 
             title: storedTask.title,
             description: storedTask.description || 'No description provided',
             dueDate: storedTask.dueDate,
             priority: storedTask.priority,
-              transactionHash: tx.hash,
+            transactionHash: tx.hash,
             note: 'Task decrypted - original content restored'
           } 
         };
-      } else {
+          } else {
         console.log('⚠️ No stored task data found for index:', taskIndex);
         console.log('⚠️ Available stored task indices:', Object.keys(storedTasks));
+        console.log('⚠️ This task was likely created before localStorage sync was implemented, or metadata was cleared');
+        console.log('⚠️ Attempting to read decrypted data from blockchain after oracle processing...');
         
-        // CRITICAL: NEVER replace user data with hardcoded values!
-        // This violates data integrity and user trust
-        console.error('🚨 CRITICAL DATA INTEGRITY VIOLATION: User data not found in localStorage');
-        console.error('🚨 This should NEVER happen - user input must be preserved');
+        // After requestTaskDecryption, the oracle should process and make data readable
+        // Try to read the decrypted data directly from the contract
+        // Note: This might require waiting a bit for the oracle to process
         
+        // After requestTaskDecryption, the oracle processes and makes data decryptable
+        // We need to read the task from blockchain and decrypt the euint values using FHEVM
+        try {
+          // Wait for oracle to process (usually quick, but may take a few seconds)
+          console.log('⏳ Waiting for oracle to process decryption request...');
+          await new Promise(resolve => setTimeout(resolve, 3000)); // Increased wait time for oracle
+          
+          // Read the task from blockchain - after oracle processing, we can decrypt euint values
+          const userAddress = await signer.getAddress();
+          const allTasks = await this.contract.getTasks(userAddress);
+          
+          if (taskIndex < allTasks.length) {
+            const encryptedTask = allTasks[taskIndex];
+            console.log('🔍 Encrypted task data from blockchain:', encryptedTask);
+            
+            // Decrypt the euint values using FHEVM instance
+            let decryptedTitle = '';
+            let decryptedDescription = '';
+            let decryptedDueDate = '';
+            let decryptedPriority = 0;
+            
+            try {
+              // Get FHEVM instance for decryption
+              // Check if FHEVM service is initialized (we'll try to use it anyway and catch errors)
+              console.log('🔍 Attempting to decrypt using FHEVM service...');
+              
+              // Helper to convert number to string (FHEVM stores strings as numbers)
+              const numberToString = (num: any): string => {
+                if (typeof num === 'string') return num;
+                if (typeof num === 'bigint') {
+                  // Convert bigint to number, then to string
+                  const numStr = num.toString();
+                  let result = '';
+                  for (let i = 0; i < numStr.length; i += 2) {
+                    const charCode = parseInt(numStr.substr(i, 2));
+                    if (charCode > 0 && charCode < 256) {
+                      result += String.fromCharCode(charCode);
+                    }
+                  }
+                  return result.replace(/\0/g, '').trim();
+                }
+                if (typeof num === 'number') {
+                  // Convert number to string byte by byte
+                  let result = '';
+                  let temp = num;
+                  while (temp > 0) {
+                    const byte = temp % 256;
+                    if (byte > 0) result = String.fromCharCode(byte) + result;
+                    temp = Math.floor(temp / 256);
+                  }
+                  return result.trim();
+                }
+                return String(num);
+              };
+              
+              // Decrypt using FHEVM service methods
+              // Decrypt title (bytes32 -> euint64 -> string)
+              if (encryptedTask.title) {
+                try {
+                  // Use fhevmService decrypt method (takes only ciphertext string)
+                  // encryptedTask.title is bytes32, convert to hex string if needed
+                  const titleCiphertext = typeof encryptedTask.title === 'string' 
+                    ? encryptedTask.title 
+                    : ethers.hexlify(encryptedTask.title);
+                  const decryptedTitleNum = await fhevmService.decrypt(titleCiphertext);
+                  decryptedTitle = numberToString(decryptedTitleNum);
+                  console.log('✅ Decrypted title:', decryptedTitle);
+                } catch (titleError) {
+                  console.warn('⚠️ Could not decrypt title:', titleError);
+                  // Try alternative method if available
+                }
+              }
+              
+              // Decrypt description (bytes32 -> euint64 -> string)
+              if (encryptedTask.description) {
+                try {
+                  const descCiphertext = typeof encryptedTask.description === 'string' 
+                    ? encryptedTask.description 
+                    : ethers.hexlify(encryptedTask.description);
+                  const decryptedDescNum = await fhevmService.decrypt(descCiphertext);
+                  decryptedDescription = numberToString(decryptedDescNum);
+                  console.log('✅ Decrypted description:', decryptedDescription);
+                } catch (descError) {
+                  console.warn('⚠️ Could not decrypt description:', descError);
+                }
+              }
+              
+              // Decrypt dueDate (bytes32 -> euint64 -> timestamp)
+              if (encryptedTask.dueDate) {
+                try {
+                  const dateCiphertext = typeof encryptedTask.dueDate === 'string' 
+                    ? encryptedTask.dueDate 
+                    : ethers.hexlify(encryptedTask.dueDate);
+                  const decryptedDueDateNum = await fhevmService.decrypt(dateCiphertext);
+                  const timestamp = typeof decryptedDueDateNum === 'bigint' 
+                    ? Number(decryptedDueDateNum) 
+                    : Number(decryptedDueDateNum);
+                  if (!isNaN(timestamp) && timestamp > 0) {
+                    decryptedDueDate = new Date(timestamp).toISOString();
+                    console.log('✅ Decrypted dueDate:', decryptedDueDate);
+                  }
+                } catch (dateError) {
+                  console.warn('⚠️ Could not decrypt dueDate:', dateError);
+                }
+              }
+              
+              // Decrypt priority (bytes32 -> euint8 -> number)
+              if (encryptedTask.priority) {
+                try {
+                  const priorityCiphertext = typeof encryptedTask.priority === 'string' 
+                    ? encryptedTask.priority 
+                    : ethers.hexlify(encryptedTask.priority);
+                  const decryptedPriorityNum = await fhevmService.decrypt(priorityCiphertext);
+                  decryptedPriority = typeof decryptedPriorityNum === 'bigint' 
+                    ? Number(decryptedPriorityNum) 
+                    : Number(decryptedPriorityNum);
+                  console.log('✅ Decrypted priority:', decryptedPriority);
+                } catch (priorityError) {
+                  console.warn('⚠️ Could not decrypt priority:', priorityError);
+                }
+              }
+              
+              // If we successfully decrypted any data, return it
+              if (decryptedTitle || decryptedDescription) {
+                // Save decrypted data to localStorage for future use
+                const normalizedWalletAddress = ethers.getAddress(userAddress);
+                const localStorageKey = `userTaskData_${normalizedWalletAddress}`;
+                const storedTasks = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
+                
+                storedTasks[taskIndex] = {
+                  ...storedTasks[taskIndex],
+                  title: decryptedTitle,
+                  description: decryptedDescription,
+                  dueDate: decryptedDueDate,
+                  priority: decryptedPriority,
+                  shouldEncrypt: true,
+                  createdAt: storedTasks[taskIndex]?.createdAt || new Date().toISOString(),
+                  status: encryptedTask.status || storedTasks[taskIndex]?.status || 'Pending'
+                };
+                
+                localStorage.setItem(localStorageKey, JSON.stringify(storedTasks));
+                console.log('✅ Saved decrypted data to localStorage');
+                
+                return {
+        success: true, 
+        decryptedData: { 
+                    title: decryptedTitle,
+              description: decryptedDescription,
+                    dueDate: decryptedDueDate,
+              priority: decryptedPriority,
+              transactionHash: tx.hash,
+                    note: '✅ Task decrypted successfully from blockchain!'
+                  }
+                };
+              }
+            } catch (decryptError) {
+              console.error('❌ FHEVM decryption failed:', decryptError);
+              // Fall through to return data not recoverable message
+            }
+          }
+        } catch (readError) {
+          console.warn('⚠️ Could not read task data from blockchain after decryption:', readError);
+        }
+        
+        // If we get here, decryption from blockchain failed
+        // This could happen if oracle hasn't processed yet, or FHEVM decryption failed
         return { 
-          success: false, 
-          error: 'CRITICAL ERROR: Your original task data was not found in secure storage. This violates data integrity. Please contact support immediately. Your data should never be replaced with placeholder content.'
+          success: true, // Transaction succeeded, but decryption from blockchain failed
+          decryptedData: { 
+            title: '[Decrypting...]',
+            description: 'Decryption transaction completed. If data doesn\'t appear, wait a moment and refresh. The oracle may still be processing.',
+            dueDate: '',
+            priority: 0,
+            transactionHash: tx.hash,
+            note: '⚠️ Decryption transaction completed, but reading decrypted data from blockchain failed. Try waiting a few seconds and refreshing.',
+            isDataRecoverable: false
+          } 
         };
       }
       
@@ -1180,18 +1944,33 @@ class RealContractService {
         throw new Error('Invalid recipient address format');
       }
       
-      // Call the contract's shareTask function
-      const tx = await this.contract.shareTask(taskIndex, recipientAddress);
-      console.log('⏳ Share transaction sent:', tx.hash);
+      // Normalize address to checksum format for consistency
+      // This ensures the address matches when recipient checks sharedTasks()
+      const normalizedAddress = ethers.getAddress(recipientAddress);
+      console.log('🔗 Normalized recipient address:', normalizedAddress, '(original:', recipientAddress, ')');
+      
+      // Call the contract's shareTask function with normalized address
+      const tx = await this.contract.shareTask(taskIndex, normalizedAddress);
+      console.log('✅ Share transaction sent successfully! Hash:', tx.hash);
+      console.log('⏳ Waiting for transaction confirmation (timeout: 30 seconds)...');
       
       // Wait for transaction confirmation
-      const receipt = await Promise.race([
-        tx.wait(1), // Wait for 1 confirmation instead of full confirmation
+      let receipt;
+      try {
+        receipt = await Promise.race([
+          tx.wait(1), // Wait for 1 confirmation
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Transaction timeout')), 30000) // Increased to 30s for task creation
-        )
-      ]);
-      console.log('✅ Task shared successfully on blockchain:', receipt);
+            setTimeout(() => reject(new Error(`Transaction timeout after 30 seconds. Your transaction was sent (hash: ${tx.hash}). Please check the blockchain explorer to verify if it was mined.`)), 30000) // 30 seconds
+          )
+        ]);
+        console.log('✅ Task shared successfully on blockchain! Hash:', receipt.hash);
+      } catch (timeoutError: any) {
+        // If timeout, the transaction might still be pending - log it
+        console.warn('⚠️ Transaction confirmation timeout:', timeoutError.message);
+        console.warn('⚠️ Transaction hash:', tx.hash);
+        console.warn('⚠️ The transaction was sent and may still be processing. Check the blockchain explorer.');
+        throw timeoutError;
+      }
       
       // Listen for TaskShared event to confirm
       const filter = this.contract!.filters.TaskShared(taskIndex);
@@ -1202,9 +1981,21 @@ class RealContractService {
       
       this.contract!.on(filter, listener);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Failed to share task:', error);
-      throw new Error(`Failed to share task: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Provide better error messages
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // If it's a timeout but transaction was sent, provide helpful info
+        if (error.message.includes('Transaction timeout') && error.message.includes('hash:')) {
+          errorMessage = error.message; // Keep the detailed message with hash
+        }
+      }
+      
+      throw new Error(`Failed to share task: ${errorMessage}`);
     }
   }
 

@@ -209,15 +209,21 @@ contract TaskManager is SepoliaConfig, Ownable {
         tasks[msg.sender].push(newTask);
         emit Debug("Task pushed", 6);
 
-        // Grant permissions
-        FHE.allow(title, msg.sender);
-        FHE.allow(description, msg.sender);
-        FHE.allow(dueDate, msg.sender);
-        FHE.allow(priority, msg.sender);
-        FHE.allowThis(title);
-        FHE.allowThis(description);
-        FHE.allowThis(dueDate);
-        FHE.allowThis(priority);
+        // CRITICAL: Grant permissions AFTER storing the task
+        // Use the stored task reference to ensure correct handles
+        Task storage storedTask = tasks[msg.sender][tasks[msg.sender].length - 1];
+        
+        // Grant user decryption permissions
+        FHE.allow(storedTask.title, msg.sender);
+        FHE.allow(storedTask.description, msg.sender);
+        FHE.allow(storedTask.dueDate, msg.sender);
+        FHE.allow(storedTask.priority, msg.sender);
+        
+        // Grant contract permissions for operations
+        FHE.allowThis(storedTask.title);
+        FHE.allowThis(storedTask.description);
+        FHE.allowThis(storedTask.dueDate);
+        FHE.allowThis(storedTask.priority);
         emit Debug("Permissions granted", 7);
     }
 
