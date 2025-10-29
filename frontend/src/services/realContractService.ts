@@ -35,7 +35,7 @@ const TASK_MANAGER_ABI = [
   "function getTasks(address user) external view returns (tuple(bytes32 title, bytes32 description, bytes32 dueDate, bytes32 priority, bytes32 numericId, uint8 status)[] memory)",
   
   // Shared tasks functions
-  "function sharedTasks(address user) external view returns (uint256[] memory)",
+  "function getSharedTasks(address recipient) external view returns (uint256[] memory)",
   "function taskOwners(uint256 taskIndex) external view returns (address)",
   "function isTaskSharedWith(address recipient, uint256 taskIndex) external view returns (bool)",
 
@@ -154,6 +154,7 @@ class RealContractService {
       const userAddress = await signer.getAddress();
       console.log('🔍 Loading received tasks for user:', userAddress);
       console.log('🔍 User address (checksum):', ethers.getAddress(userAddress));
+      console.log('🔍 User address (lowercase):', userAddress.toLowerCase());
 
       // Try to get shared task indices for this user
       // IMPORTANT: The address must match exactly how it was stored in the contract
@@ -161,20 +162,22 @@ class RealContractService {
       try {
         // Try with checksummed address first
         const checksumAddress = ethers.getAddress(userAddress);
-        sharedTaskIndices = await this.contract.sharedTasks(checksumAddress);
+        console.log('🔍 Querying getSharedTasks with checksum address:', checksumAddress);
+        sharedTaskIndices = await this.contract.getSharedTasks(checksumAddress);
         console.log('🔍 Found shared task indices (checksum):', sharedTaskIndices);
-        
+
         // If empty, try with lowercase address (some contracts store lowercase)
         if (sharedTaskIndices.length === 0) {
           console.log('🔍 Trying lowercase address...');
-          sharedTaskIndices = await this.contract.sharedTasks(userAddress.toLowerCase());
+          console.log('🔍 Querying getSharedTasks with lowercase address:', userAddress.toLowerCase());
+          sharedTaskIndices = await this.contract.getSharedTasks(userAddress.toLowerCase());
           console.log('🔍 Found shared task indices (lowercase):', sharedTaskIndices);
         }
       } catch (error: any) {
         const errorCode = error?.code;
         const errorMessage = error?.message || '';
         
-        console.warn('⚠️ Error calling sharedTasks:', {
+        console.warn('⚠️ Error calling getSharedTasks:', {
           code: errorCode,
           message: errorMessage,
           address: userAddress
@@ -192,7 +195,7 @@ class RealContractService {
           errorMessage.includes('does not exist') ||
           errorMessage.includes('execution reverted')
         ) {
-          console.log('ℹ️ sharedTasks function may not be implemented on this contract, or no tasks are shared');
+          console.log('ℹ️ getSharedTasks function may not be implemented on this contract, or no tasks are shared');
           console.log('ℹ️ This is OK - it just means there are no received tasks. Returning empty array.');
           // Return empty array instead of throwing - this is not a critical error
       return [];
@@ -480,9 +483,9 @@ class RealContractService {
           combinedInput.add8(priority);           // Priority as 8-bit
           
           // Encrypt using the global public key
-          // NOTE: This contacts the Zama FHEVM relayer and may take 3-10 seconds
+          // NOTE: This contacts the Zama FHEVM relayer and may require signing + take 3-10 seconds
           if (retryCount === 0) {
-            console.log('🔐 Contacting Zama FHEVM relayer for encryption (this may take a few seconds)...');
+            console.log('🔐 Contacting Zama FHEVM relayer for encryption (may require signing approval)...');
           } else {
             console.log(`🔄 Encryption retry attempt ${retryCount + 1}/${maxRetries}...`);
           }
@@ -539,23 +542,29 @@ class RealContractService {
       console.log('✅ Transaction sent successfully! Hash:', tx.hash);
       console.log('⏳ Waiting for transaction confirmation (timeout: 30 seconds)...');
       
-      // Wait for transaction confirmation
-      // After signing, the transaction needs to be mined which can take time on some networks
+      // Wait for transaction confirmation with better error handling
+      // Sepolia can be slow, so we give it more time
+      console.log('⏳ Waiting for transaction confirmation on Sepolia... (can take 30-60 seconds)');
       let receipt;
       try {
         receipt = await Promise.race([
           tx.wait(1), // Wait for 1 confirmation
         new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(`Transaction timeout after 30 seconds. Your transaction was sent (hash: ${tx.hash}). Please check the blockchain explorer to verify if it was mined.`)), 30000) // 30 seconds
+            setTimeout(() => reject(new Error(`Transaction timeout after 60 seconds. Your transaction was sent (hash: ${tx.hash}). Sepolia can be slow - please wait and check the blockchain explorer.`)), 60000) // 60 seconds for Sepolia
         )
       ]);
       console.log('✅ Task created on blockchain! Hash:', receipt.hash);
       } catch (timeoutError: any) {
-        // If timeout, the transaction might still be pending - log it
+        // If timeout, the transaction might still be pending - don't throw error immediately
         console.warn('⚠️ Transaction confirmation timeout:', timeoutError.message);
         console.warn('⚠️ Transaction hash:', tx.hash);
-        console.warn('⚠️ The transaction was sent and may still be processing. Check the blockchain explorer.');
-        throw timeoutError;
+        console.warn('⚠️ Sepolia can be slow. The transaction was sent and may still be processing.');
+        console.warn('🔍 Check transaction status at: https://sepolia.etherscan.io/tx/' + tx.hash);
+
+        // For Sepolia timeouts, we'll continue and assume the transaction will be mined
+        // This prevents the user from getting stuck
+        console.log('🔄 Continuing with task creation (transaction may still be processing)...');
+        receipt = { hash: tx.hash }; // Use the tx hash as receipt for now
       }
       
       return { 
@@ -970,10 +979,16 @@ class RealContractService {
         throw new Error('Wallet not connected. Please connect your wallet first.');
       }
       
+      // Initialize FHEVM if not ready (same as createTask)
+      if (!fhevmService.isReady()) {
+        console.warn('⚠️ FHEVM not ready for decryption, initializing...');
+        await fhevmService.initialize();
+      }
+
       // Get FHEVM instance for user decryption
       const fhevmInstance = fhevmService.getInstance();
       if (!fhevmInstance) {
-        throw new Error('FHEVM instance not available. Please wait for FHEVM initialization.');
+        throw new Error('FHEVM instance not available after initialization. Please refresh the page and try again.');
       }
       
       const userAddress = await signer.getAddress();
@@ -1180,8 +1195,11 @@ class RealContractService {
       // retrieve the original strings from localStorage instead of trying to reverse hashes
       console.log('🔍 Hash verification successful - retrieving original data from localStorage...');
 
-      // Get original task data from localStorage
-      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+      // Get original task data from localStorage using scoped keys
+      const normalizedAddress = ethers.getAddress(userAddress);
+      const scopedKey = `userTaskData_${normalizedAddress}`;
+
+      const storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
       const originalTaskData = storedTasks[taskIndex];
 
       if (!originalTaskData) {
@@ -1647,7 +1665,13 @@ class RealContractService {
 
     try {
       console.log('🔓 Starting decryption for shared task ID:', taskId, 'original owner:', originalOwner);
-      
+
+      // Initialize FHEVM if not ready (for shared task decryption)
+      if (!fhevmService.isReady()) {
+        console.warn('⚠️ FHEVM not ready for shared task decryption, initializing...');
+        await fhevmService.initialize();
+      }
+
       const signer = simpleWalletService.getSigner();
       if (!signer) {
         throw new Error('Wallet not connected. Please connect your wallet first.');
@@ -1714,7 +1738,7 @@ class RealContractService {
     if (!str || typeof str !== 'string') {
       return 0;
     }
-
+    
     // Use a deterministic hash that fits in 64-bit range
     // This is for on-chain verification - actual text stored in backend
     let hash = 0;
@@ -1723,7 +1747,7 @@ class RealContractService {
       hash = ((hash << 5) - hash) + char;
       hash = hash >>> 0; // Convert to 32-bit unsigned
     }
-
+    
     // Add length information to make it more unique
     return Math.abs(hash) + (str.length * 1000000);
   }

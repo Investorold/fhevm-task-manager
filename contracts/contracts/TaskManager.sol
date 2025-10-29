@@ -333,16 +333,21 @@ contract TaskManager is SepoliaConfig, Ownable {
         FHE.allow(task.title, recipient);
         FHE.allow(task.dueDate, recipient);
         FHE.allow(task.priority, recipient);
-        
+
         // Track the shared task
         if (!isTaskSharedWith[recipient][taskIndex]) {
             sharedTasks[recipient].push(taskIndex);
             taskOwners[taskIndex] = msg.sender;
             isTaskSharedWith[recipient][taskIndex] = true;
         }
-        
+
         // Emit event for frontend to listen
         emit TaskShared(taskIndex, msg.sender, recipient);
+    }
+
+    // Function to get all shared task indices for a recipient
+    function getSharedTasks(address recipient) public view returns (uint256[] memory) {
+        return sharedTasks[recipient];
     }
 
     function requestTasksDueSoonCount(externalEuint64 encryptedTimeMargin, bytes calldata inputProof) public {

@@ -4,7 +4,7 @@ import type { Task } from '../types';
 
 interface ShareModalProps {
   task: Task;
-  onShare: (taskId: number, recipientAddress: string) => Promise<void>;
+  onShare: (taskId: number, recipientAddress: string | string[]) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -17,9 +17,16 @@ export function ShareModal({ task, onShare, onCancel }: ShareModalProps) {
     e.preventDefault();
     if (!recipientAddress.trim()) return;
 
+    const addresses = parseAddresses(recipientAddress);
+    if (addresses.length === 0) return;
+
     setIsSharing(true);
     try {
-      await onShare(task.id, recipientAddress.trim());
+      if (addresses.length === 1) {
+        await onShare(task.id, addresses[0]);
+      } else {
+        await onShare(task.id, addresses);
+      }
     } catch (error) {
       console.error('Failed to share task:', error);
     } finally {
@@ -38,7 +45,23 @@ export function ShareModal({ task, onShare, onCancel }: ShareModalProps) {
   };
 
   const isValidAddress = (address: string) => {
-    return /^0x[a-fA-F0-9]{40}$/.test(address);
+    return /^0x[a-fA-F0-9]{40}$/.test(address.trim());
+  };
+
+  const parseAddresses = (input: string): string[] => {
+    return input.split(',')
+      .map(addr => addr.trim())
+      .filter(addr => addr.length > 0);
+  };
+
+  const getInvalidAddresses = (input: string): string[] => {
+    const addresses = parseAddresses(input);
+    return addresses.filter(addr => !isValidAddress(addr));
+  };
+
+  const isValidInput = (input: string): boolean => {
+    const addresses = parseAddresses(input);
+    return addresses.length > 0 && getInvalidAddresses(input).length === 0;
   };
 
   return (
@@ -115,7 +138,7 @@ export function ShareModal({ task, onShare, onCancel }: ShareModalProps) {
           <form onSubmit={handleShare} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-zama-gray-700 mb-2">
-                Recipient Address *
+                Recipient Address(es) *
               </label>
               <div className="relative">
                 <input
@@ -123,22 +146,28 @@ export function ShareModal({ task, onShare, onCancel }: ShareModalProps) {
                   value={recipientAddress}
                   onChange={(e) => setRecipientAddress(e.target.value)}
                   className={`input-field pr-10 ${
-                    recipientAddress && !isValidAddress(recipientAddress)
+                    recipientAddress && !isValidInput(recipientAddress)
                       ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
                       : ''
                   }`}
-                  placeholder="0x..."
+                  placeholder="0x..., 0x..."
                   required
                 />
                 <Users className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-zama-gray-400" />
               </div>
-              {recipientAddress && !isValidAddress(recipientAddress) && (
-                <p className="text-xs text-red-600 mt-1">
-                  Please enter a valid Ethereum address
-                </p>
+              {recipientAddress && !isValidInput(recipientAddress) && (
+                <div className="text-xs text-red-600 mt-1">
+                  {getInvalidAddresses(recipientAddress).length > 0 ? (
+                    <div>
+                      Invalid address(es): {getInvalidAddresses(recipientAddress).join(', ')}
+                    </div>
+                  ) : (
+                    <div>Please enter valid Ethereum address(es)</div>
+                  )}
+                </div>
               )}
               <p className="text-xs text-zama-gray-500 mt-1">
-                The recipient will be able to decrypt and view this task
+                Separate multiple addresses with commas. Recipients will be able to decrypt and view this task.
               </p>
             </div>
 
@@ -166,7 +195,7 @@ export function ShareModal({ task, onShare, onCancel }: ShareModalProps) {
               <button
                 type="submit"
                 className="btn-primary flex-1 flex items-center justify-center space-x-2"
-                disabled={isSharing || !isValidAddress(recipientAddress)}
+                disabled={isSharing || !isValidInput(recipientAddress)}
               >
                 {isSharing ? (
                   <>

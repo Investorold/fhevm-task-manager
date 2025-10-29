@@ -105,18 +105,43 @@ class FhevmService {
       try {
         console.log('🔧 Trying CDN import...');
         const cdnModule = await import('https://cdn.zama.ai/relayer-sdk-js/0.2.0/relayer-sdk-js.js');
+        
+        // Check if module has required exports
+        if (!cdnModule || !cdnModule.initSDK) {
+          throw new Error('CDN module loaded but missing required exports');
+        }
+        
         ({ initSDK, createInstance, SepoliaConfig } = cdnModule);
         console.log('✅ CDN import successful');
-      } catch (cdnError) {
-        console.log('⚠️ CDN import failed, trying npm package...');
-        const npmModule = await import('@zama-fhe/relayer-sdk/bundle');
-        ({ initSDK, createInstance, SepoliaConfig } = npmModule);
-        console.log('✅ NPM package import successful');
+      } catch (cdnError: any) {
+        console.warn('⚠️ CDN import failed:', cdnError.message);
+        console.log('⚠️ Trying npm package fallback...');
+        
+        try {
+          const npmModule = await import('@zama-fhe/relayer-sdk/bundle');
+          
+          if (!npmModule || !npmModule.initSDK) {
+            throw new Error('NPM module loaded but missing required exports');
+          }
+          
+          ({ initSDK, createInstance, SepoliaConfig } = npmModule);
+          console.log('✅ NPM package import successful');
+        } catch (npmError: any) {
+          console.error('❌ Both CDN and NPM imports failed');
+          console.error('CDN error:', cdnError.message);
+          console.error('NPM error:', npmError.message);
+          throw new Error(`Failed to load FHEVM SDK from both CDN and NPM. Check your internet connection. CDN error: ${cdnError.message}`);
+        }
+      }
+      
+      // Verify we have initSDK before calling it
+      if (!initSDK || typeof initSDK !== 'function') {
+        throw new Error('initSDK function not available. FHEVM SDK may not have loaded correctly.');
       }
       
       // Initialize the FHEVM SDK first
       await initSDK();
-      console.log('✅ FHEVM SDK WASM loaded from CDN');
+      console.log('✅ FHEVM SDK initialized successfully');
 
       // Production Sepolia configuration for real-world dApp
       const config = {

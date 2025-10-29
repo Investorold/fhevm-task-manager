@@ -8,6 +8,7 @@ import { NotificationContainer } from './components/NotificationContainer';
 import { realContractService } from './services/realContractService';
 import { simpleWalletService } from './services/simpleWalletService';
 import { fhevmService } from './services/fhevmService';
+import { getContractAddress } from './config/contract';
 import type { WalletState } from './types';
 
 function App() {
@@ -15,8 +16,8 @@ function App() {
   const [walletAddress, setWalletAddress] = useState('');
   const [isInitializing, setIsInitializing] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
-  // Real deployed contract address from Termius
-  const [contractAddress, setContractAddress] = useState('0xBd0EAE395C084154d159554287f1eAA89E700256');
+  // Real deployed contract address from config
+  const [contractAddress, setContractAddress] = useState(getContractAddress());
 
   useEffect(() => {
     // Try to restore persisted wallet connection on page load
