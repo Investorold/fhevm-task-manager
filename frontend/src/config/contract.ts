@@ -5,7 +5,7 @@ export const CONTRACT_CONFIG = {
   // ✅ VERIFIED DEPLOYMENT - Sepolia Testnet (Chain ID: 11155111)
   // 📍 Contract: 0x472e7934eA5279450E44b6ca376580C9f33876aC
   // 🔗 Etherscan: https://sepolia.etherscan.io/address/0x472e7934eA5279450E44b6ca376580C9f33876aC#code
-  // ✅ New deployment with getSharedTasks() function for shared tasks functionality
+  // ✅ New deployment with getSharedTasks() function
   TASK_MANAGER_ADDRESS: '0x472e7934eA5279450E44b6ca376580C9f33876aC',
   
   // Network configuration

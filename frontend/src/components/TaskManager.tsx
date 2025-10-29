@@ -14,6 +14,8 @@ import { ShareModal } from './ShareModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { DecryptionModal } from './DecryptionModal';
 import { BulkDeleteModal } from './BulkDeleteModal';
+import { NotificationContainer } from './NotificationContainer';
+import type { Notification } from './NotificationContainer';
 // import { debugLocalStorage } from '../utils/debugLocalStorage';
 
 export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: boolean }) {
@@ -266,14 +268,42 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         }
       }
       
-        // Load tasks from blockchain
+      // Load tasks from blockchain
         console.log('📡 Fetching tasks from blockchain...');
-        const blockchainTasks = await realContractService.getTasks();
+      const blockchainTasks = await realContractService.getTasks();
         console.log('✅ Loaded tasks from blockchain:', blockchainTasks.length);
         console.log('📊 Blockchain task details:', blockchainTasks);
         
-        // Merge blockchain data with stored user data from localStorage
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+        // Load stored user data from BACKEND first, then localStorage fallback
+        let storedTasks: Record<string, any> = {};
+        let backendAvailable = false;
+        
+        try {
+          const backendTasks = await backendService.getTasks();
+          storedTasks = backendTasks;
+          backendAvailable = true;
+          console.log('✅ Loaded tasks from BACKEND:', Object.keys(backendTasks).length);
+          console.log('📊 Backend tasks:', backendTasks);
+        } catch (backendError) {
+          console.warn('⚠️ Backend unavailable, using localStorage fallback:', backendError);
+          
+          // Fallback to localStorage
+          const userAddress = simpleWalletService.getAddress();
+          const scopedKey = userAddress ? `userTaskData_${userAddress}` : 'userTaskData';
+          storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
+          console.log('✅ Loaded tasks from localStorage (fallback):', Object.keys(storedTasks).length);
+          
+          // Show warning notification
+          if ((window as any).addNotification) {
+            (window as any).addNotification({
+              type: 'warning',
+              title: 'Backend Unavailable',
+              message: 'Loaded tasks from browser storage. Backend sync unavailable.',
+              duration: 5000
+            });
+          }
+        }
+        
         const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
         const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '{}');
         
@@ -331,6 +361,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             // CRITICAL: Use localStorage status if available, otherwise use blockchain status
             const taskStatus = storedTask.status || blockchainTask.status;
             
+            // Determine if this is a plain task or encrypted task
+            const isPlainTask = storedTask.shouldEncrypt === false || storedTask.isEncrypted === false;
+            
             // Preserve user-entered data while keeping blockchain status
             const task: Task = {
               ...blockchainTask,
@@ -342,9 +375,10 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
               createdAt: storedTask.createdAt,
               // Use localStorage status for completion persistence
               status: taskStatus,
-              isEncrypted: storedTask.shouldEncrypt !== false ? true : blockchainTask.isEncrypted,
+              // CRITICAL: Plain tasks have isEncrypted = false, encrypted tasks have isEncrypted = true
+              isEncrypted: isPlainTask ? false : (storedTask.isEncrypted !== undefined ? storedTask.isEncrypted : true),
               isShared: blockchainTask.isShared,
-              shouldEncrypt: storedTask.shouldEncrypt
+              shouldEncrypt: storedTask.shouldEncrypt !== undefined ? storedTask.shouldEncrypt : true
             };
             
             // Check if this task was decrypted before and restore that state
@@ -513,6 +547,32 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           const address = await signer.getAddress();
           backendService.setUserAddress(address);
           console.log('✅ Backend service initialized for address:', address);
+          
+          // Test backend connection
+          try {
+            const healthCheck = await fetch('http://localhost:3001/health');
+            if (healthCheck.ok) {
+              console.log('✅ Backend server is connected and healthy');
+              if ((window as any).addNotification) {
+                (window as any).addNotification({
+                  type: 'success',
+                  title: 'Backend Connected',
+                  message: 'Connected to backend server. Tasks will be saved persistently.',
+                  duration: 3000
+                });
+              }
+            }
+          } catch (healthError) {
+            console.warn('⚠️ Backend health check failed:', healthError);
+            if ((window as any).addNotification) {
+              (window as any).addNotification({
+                type: 'warning',
+                title: 'Backend Unavailable',
+                message: 'Backend server is not available. Using browser storage only.',
+                duration: 5000
+              });
+            }
+          }
         }
       } catch (err) {
         console.warn('⚠️ Could not initialize backend service:', err);
@@ -566,21 +626,38 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         console.log('💾 Saving plain text task with ID:', taskId);
         
-        // Save to localStorage for persistence
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-        storedTasks[taskId] = {
+        // Save plain task to BACKEND first, then localStorage as fallback
+        const userAddress = simpleWalletService.getAddress();
+        const taskMetadata = {
           title: newTask.title,
           description: newTask.description,
           dueDate: newTask.dueDate,
           priority: newTask.priority,
           createdAt: newTask.createdAt,
           status: newTask.status,
-          shouldEncrypt: false
+          shouldEncrypt: false,
+          isEncrypted: false,
+          address: userAddress
         };
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+        
+        // Try backend first
+        if (userAddress) {
+          try {
+            await backendService.saveTask(taskMetadata, taskId);
+            console.log('✅ Plain task saved to BACKEND');
+          } catch (backendError) {
+            console.warn('⚠️ Backend save failed, using localStorage:', backendError);
+          }
+        }
+        
+        // Save to localStorage for persistence (fallback or additional storage)
+        const scopedKey = userAddress ? `userTaskData_${userAddress}` : 'userTaskData';
+        const storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
+        storedTasks[taskId] = taskMetadata;
+        localStorage.setItem(scopedKey, JSON.stringify(storedTasks));
         console.log('✅ Saved to localStorage, all stored tasks:', Object.keys(storedTasks));
         
-        // Also mark as decrypted immediately (no decryption needed for plain text)
+        // Plain tasks are never encrypted, so they're always "decrypted" (just mark as readable)
         const decryptedTasks = JSON.parse(localStorage.getItem('decryptedTasks') || '[]');
         decryptedTasks.push(taskId);
         localStorage.setItem('decryptedTasks', JSON.stringify(decryptedTasks));
@@ -588,7 +665,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         setTasks(prevTasks => [...prevTasks, newTask]);
         setShowTaskForm(false);
-        console.log('✅ Plain text task created instantly in localStorage:', newTask);
+        console.log('✅ Plain text task created:', newTask);
         return;
       }
       
@@ -667,22 +744,58 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         console.log('🔍 Task created at blockchain index:', actualTaskIndex);
         
-        // Store user-entered data using taskStorage (backend or localStorage fallback)
-        // Store to localStorage directly
-        const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-        storedTasks[actualTaskIndex] = {
+        // Store user-entered data to BACKEND SERVER first (primary storage)
+        // Use localStorage as fallback if backend is unavailable
+        const userAddress = simpleWalletService.getAddress();
+        if (!userAddress) {
+          throw new Error('User address not available');
+        }
+        
+        const taskMetadata = {
           title: taskData.title,
           description: taskData.description,
           dueDate: taskData.dueDate,
           priority: taskData.priority,
           createdAt: new Date().toISOString(),
           status: taskData.status,
-          shouldEncrypt: true
+          shouldEncrypt: true,
+          address: userAddress
         };
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-        console.log('✅ Task metadata saved to localStorage at index:', actualTaskIndex);
-        console.log('✅ Stored data:', storedTasks[actualTaskIndex]);
-        console.log('✅ All stored tasks:', storedTasks);
+        
+        // Try to save to backend first
+        try {
+          await backendService.saveTask(taskMetadata, actualTaskIndex);
+          console.log('✅ Task metadata saved to BACKEND at index:', actualTaskIndex);
+          
+          // Show success notification
+          if ((window as any).addNotification) {
+            (window as any).addNotification({
+              type: 'success',
+              title: 'Task Saved',
+              message: 'Task saved to backend server successfully',
+              duration: 3000
+            });
+          }
+        } catch (backendError) {
+          console.warn('⚠️ Backend save failed, using localStorage fallback:', backendError);
+          
+          // Fallback to localStorage if backend fails
+          const scopedKey = `userTaskData_${userAddress}`;
+          const storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
+          storedTasks[actualTaskIndex] = taskMetadata;
+          localStorage.setItem(scopedKey, JSON.stringify(storedTasks));
+          console.log('✅ Task metadata saved to localStorage (fallback) at index:', actualTaskIndex);
+          
+          // Show warning notification
+          if ((window as any).addNotification) {
+            (window as any).addNotification({
+              type: 'warning',
+              title: 'Backend Unavailable',
+              message: 'Task saved to browser storage. Will sync when backend is available.',
+              duration: 5000
+            });
+          }
+        }
         
         // CRITICAL: DO NOT mark encrypted tasks as decrypted by default
         // They must be decrypted by the user first
@@ -705,7 +818,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         setShowTaskForm(false);
         console.log('✅ Task created successfully on blockchain with user data preserved at index:', actualTaskIndex);
       } else {
-          throw new Error(result.error || 'Failed to create task');
+        throw new Error(result.error || 'Failed to create task');
       }
     } catch (error) {
       console.error('Failed to create task:', error);
@@ -905,14 +1018,14 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
     
     try {
       // Demo mode - update task in state
-        setTasks(prev => prev.map(task => 
+      setTasks(prev => prev.map(task => 
         task.id === editingTask.id 
           ? { ...task, ...taskData }
-            : task
-        ));
+          : task
+      ));
       setEditingTask(null);
       console.log('Demo: Task edited successfully');
-        } catch (error) {
+    } catch (error) {
       console.error('Failed to edit task:', error);
       throw error;
     }
@@ -1522,7 +1635,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       // Demo mode - simulate sharing
       if (isDemoMode) {
         console.log('🎮 Demo: Sharing task', taskId, 'with', addresses.length, 'recipient(s)');
-        setSharingTask(null);
+      setSharingTask(null);
         alert(`Demo: Task shared with ${addresses.length} recipient(s)`);
         return;
       }
@@ -1538,6 +1651,11 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         throw new Error('Task not found');
       }
 
+      // Prevent sharing plain (non-encrypted) tasks
+      if (!task.isEncrypted || task.shouldEncrypt === false) {
+        throw new Error('Plain tasks cannot be shared. Only encrypted tasks can be shared.');
+      }
+
       // Share with each recipient
       const sharedRecipients: string[] = [];
       for (const address of addresses) {
@@ -1551,7 +1669,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           await realContractService.shareTask(taskId, address);
           sharedRecipients.push(address);
           console.log(`✅ Shared with ${address}`);
-        } catch (error) {
+    } catch (error) {
           console.error(`❌ Failed to share with ${address}:`, error);
           throw new Error(`Failed to share with ${address}: ${(error as Error).message}`);
         }
@@ -1564,8 +1682,24 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           : t
       ));
 
+      // Update backend and localStorage with sharedWith data
+      const userAddress = simpleWalletService.getAddress();
+      if (userAddress) {
+        try {
+          // Update backend
+          await backendService.updateTask(taskId, {
+            isShared: true,
+            sharedWith: sharedRecipients
+          });
+          console.log('✅ Shared recipients saved to backend');
+        } catch (backendError) {
+          console.warn('⚠️ Failed to update backend with shared recipients:', backendError);
+        }
+      }
+      
       // Update localStorage
-      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
+      const scopedKey = userAddress ? `userTaskData_${userAddress}` : 'userTaskData';
+      const storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
       if (storedTasks[taskId]) {
         const existingShared = storedTasks[taskId].sharedWith || [];
         const updatedShared = [...new Set([...existingShared, ...sharedRecipients])];
@@ -1574,16 +1708,34 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           isShared: true, 
           sharedWith: updatedShared 
         };
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+        localStorage.setItem(scopedKey, JSON.stringify(storedTasks));
       }
 
       setSharingTask(null);
       console.log('✅ Task shared successfully with all recipients');
-      alert(`Task shared successfully with ${sharedRecipients.length} recipient(s)`);
+      
+      // Show success notification
+      if ((window as any).addNotification) {
+        (window as any).addNotification({
+          type: 'success',
+          title: 'Task Shared Successfully!',
+          message: `Task has been shared with ${sharedRecipients.length} recipient(s). They can now decrypt and view this task.`,
+          duration: 6000
+        });
+      }
       
     } catch (error) {
       console.error('❌ Failed to share task:', error);
-      alert(`Failed to share task: ${(error as Error).message}`);
+      
+      // Show error notification
+      if ((window as any).addNotification) {
+        (window as any).addNotification({
+          type: 'error',
+          title: 'Failed to Share Task',
+          message: (error as Error).message || 'An error occurred while sharing the task.',
+          duration: 6000
+        });
+      }
       throw error;
     }
   };
@@ -1669,7 +1821,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
               </button>
           </div>
           )}
-            <button
+          <button
             onClick={() => setShowTaskForm(true)}
             className="btn-primary flex items-center space-x-2"
             // Allow button to work even if FHEVM is still initializing
@@ -1913,6 +2065,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         onConfirm={bulkDeleteTasks}
         onCancel={() => setShowBulkDeleteModal(false)}
       />
+
+      {/* Notification Container */}
+      <NotificationContainer />
     </div>
   );
 }

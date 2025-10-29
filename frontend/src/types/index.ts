@@ -12,6 +12,7 @@ export interface Task {
   frontendId?: number; // Frontend timestamp ID for reference
   isEncrypted?: boolean; // Whether task is encrypted
   isShared?: boolean; // Whether task is shared
+  sharedWith?: string[]; // Array of recipient addresses this task is shared with
   isLegacy?: boolean; // Whether task is legacy (created before localStorage sync)
   shouldEncrypt?: boolean; // Whether task should be encrypted (plain text if false)
 }

@@ -1,6 +1,7 @@
-import { CheckCircle, Trash2, Share2, Clock, Shield, Eye } from 'lucide-react';
-import type { Task } from '../types';
+import { useState, useEffect, useRef } from 'react';
+import { CheckCircle, Trash2, Share2, Clock, Shield, Eye, Users, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
+import type { Task } from '../types';
 
 interface TaskCardProps {
   task: Task;
@@ -29,6 +30,34 @@ export function TaskCard({
   isSelected = false,
   onToggleSelection
 }: TaskCardProps) {
+  const [showRecipients, setShowRecipients] = useState(false);
+  const recipientsDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Get recipients - handle both array and single string
+  const recipients = task.sharedWith || [];
+  const hasRecipients = recipients.length > 0;
+
+  const formatAddress = (address: string) => {
+    if (!address) return '';
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (recipientsDropdownRef.current && !recipientsDropdownRef.current.contains(event.target as Node)) {
+        setShowRecipients(false);
+      }
+    };
+
+    if (showRecipients) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showRecipients]);
   const getEncryptedDisplay = (type: string) => {
     const shortHashes = {
       title: '******* ********',
@@ -111,7 +140,14 @@ export function TaskCard({
             <div className="flex items-center space-x-1">
               <Shield className="w-4 h-4 text-zama-yellow" />
               <span className="text-xs text-zama-gray-500">
-                {task.isEncrypted ? (isDecrypted ? 'Decrypted' : 'Encrypted') : 'Decrypted'}
+                {(() => {
+                  // Plain tasks (not encrypted)
+                  if (!task.isEncrypted || task.shouldEncrypt === false) {
+                    return 'Plain';
+                  }
+                  // Encrypted tasks
+                  return isDecrypted ? 'Decrypted' : 'Encrypted';
+                })()}
               </span>
             </div>
           </div>
@@ -149,7 +185,14 @@ export function TaskCard({
                 ? 'text-green-600 bg-green-50' 
                 : 'text-blue-600 bg-blue-50'
             }`}>
-              {isDecrypted ? task.status : '*******'}
+              {(() => {
+                // Plain tasks always show status
+                if (!task.isEncrypted || task.shouldEncrypt === false) {
+                  return task.status;
+                }
+                // Encrypted tasks show status only if decrypted
+                return isDecrypted ? task.status : '*******';
+              })()}
             </div>
           </div>
 
@@ -166,7 +209,8 @@ export function TaskCard({
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-2 ml-4">
-          {!isDecrypted && onDecrypt && (
+          {/* Only show decrypt button for encrypted tasks that aren't decrypted yet */}
+          {!isDecrypted && onDecrypt && task.isEncrypted && task.shouldEncrypt !== false && (
             <button
               onClick={onDecrypt}
               className="p-2 text-zama-yellow hover:bg-zama-yellow hover:bg-opacity-20 rounded-lg transition-colors"
@@ -176,7 +220,8 @@ export function TaskCard({
             </button>
           )}
           
-          {isDecrypted && task.status === 'Pending' && (
+          {/* Show complete button for decrypted encrypted tasks OR plain tasks */}
+          {((isDecrypted && task.isEncrypted) || (!task.isEncrypted || task.shouldEncrypt === false)) && task.status === 'Pending' && (
             <button
               onClick={onComplete}
               className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
@@ -188,11 +233,12 @@ export function TaskCard({
           
           {/* Edit functionality removed for privacy - tasks are immutable after creation */}
           
-          {isDecrypted && task.status !== 'Completed' && !task.isShared && (
+          {/* Only show share button for encrypted tasks (plain tasks cannot be shared) */}
+          {isDecrypted && task.status !== 'Completed' && !task.isShared && task.isEncrypted && task.shouldEncrypt !== false && (
             <button
               onClick={onShare}
               className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-              title="Share Task with Another User"
+              title="Share Task with Another User (Encrypted tasks only)"
             >
               <Share2 className="w-5 h-5" />
             </button>
@@ -220,11 +266,51 @@ export function TaskCard({
             </button>
           )} */}
           
-          {/* Show non-editable indicators */}
+          {/* Show shared indicator with recipients dropdown */}
           {task.isShared && (
-            <div className="flex items-center space-x-1 text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded">
-              <Share2 className="w-3 h-3" />
-              <span>Shared</span>
+            <div className="relative" ref={recipientsDropdownRef}>
+              <button
+                onClick={() => setShowRecipients(!showRecipients)}
+                className="flex items-center space-x-1 text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded hover:bg-purple-100 transition-colors"
+                title={hasRecipients ? `Shared with ${recipients.length} recipient(s)` : 'Shared'}
+              >
+                <Users className="w-3 h-3" />
+                <span>{hasRecipients ? `${recipients.length}` : 'Shared'}</span>
+                {hasRecipients && (
+                  <ChevronDown className={`w-3 h-3 transition-transform ${showRecipients ? 'rotate-180' : ''}`} />
+                )}
+              </button>
+              
+              {/* Recipients Dropdown */}
+              {showRecipients && hasRecipients && (
+                <div className="absolute right-0 top-full mt-1 bg-white border border-purple-200 rounded-lg shadow-lg z-50 min-w-[280px] max-w-[350px]">
+                  <div className="p-3 border-b border-purple-100">
+                    <h4 className="text-xs font-semibold text-purple-900 flex items-center">
+                      <Users className="w-3 h-3 mr-1" />
+                      Shared with {recipients.length} recipient{recipients.length !== 1 ? 's' : ''}
+                    </h4>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    {recipients.map((recipient, index) => (
+                      <div
+                        key={index}
+                        className="p-3 border-b border-purple-50 last:border-b-0 hover:bg-purple-50 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-mono text-purple-900 truncate" title={recipient}>
+                              {formatAddress(recipient)}
+                            </p>
+                            <p className="text-xs text-purple-600 mt-0.5 truncate" title={recipient}>
+                              {recipient}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           
