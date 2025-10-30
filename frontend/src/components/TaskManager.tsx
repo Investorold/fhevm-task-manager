@@ -2272,7 +2272,7 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
               )}
             </div>
 
-            {activeTab === 'my-tasks' && tasks.map((task) => (
+            {activeTab === 'my-tasks' && filteredBase.map((task) => (
               <TaskCard
                 key={task.id}
                 task={task}
@@ -2281,7 +2281,7 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
                 onShare={() => setSharingTask(task)}
                 onDecrypt={() => handleDecryptTask(task.id)}
                 isDecrypted={decryptedTasks.has(task.id)}
-                displayIndex={tasks.indexOf(task)}
+                displayIndex={filteredBase.indexOf(task)}
                 isSelectionMode={isSelectionMode}
                 isSelected={selectedTasks.has(task.id)}
                 onToggleSelection={() => toggleTaskSelection(task.id)}
