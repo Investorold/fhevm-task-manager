@@ -15,10 +15,9 @@ import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { DecryptionModal } from './DecryptionModal';
 import { BulkDeleteModal } from './BulkDeleteModal';
 import { NotificationContainer } from './NotificationContainer';
-import type { Notification } from './NotificationContainer';
 // import { debugLocalStorage } from '../utils/debugLocalStorage';
 
-export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: boolean }) {
+export function TaskManager({ externalDemoMode = false, encryptedOnly = false }: { externalDemoMode?: boolean, encryptedOnly?: boolean }) {
   // Use external demo mode if provided, otherwise default to false
   const [isDemoMode, setIsDemoMode] = useState(externalDemoMode);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -35,7 +34,6 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
   const [activeTab, setActiveTab] = useState<'my-tasks' | 'received-tasks'>('my-tasks');
   
   // Wallet connection state
-  const [isWalletConnected, setIsWalletConnected] = useState(false);
   const [showWalletConnect, setShowWalletConnect] = useState(false);
   
   // Bulk selection state
@@ -57,24 +55,21 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       // Demo mode - skip wallet check and load tasks directly
       if (isDemoMode) {
         console.log('🎮 Demo mode: Skipping wallet check, loading tasks directly');
-        setIsWalletConnected(false);
         setShowWalletConnect(false);
         loadTasks().catch(err => console.error('Error loading tasks:', err));
-        loadReceivedTasks().catch(err => console.error('Error loading received tasks:', err));
-        loadTaskCreationFee().catch(err => console.error('Error loading fee:', err));
+        // Skip blockchain operations in demo mode
+        setReceivedTasks([]);
         return;
       }
       
       if (simpleWalletService.isWalletConnected()) {
         console.log('Wallet connected, loading data...');
-        setIsWalletConnected(true);
         setShowWalletConnect(false);
         loadTasks().catch(err => console.error('Error loading tasks:', err));
         loadReceivedTasks().catch(err => console.error('Error loading received tasks:', err));
         loadTaskCreationFee().catch(err => console.error('Error loading fee:', err));
       } else {
         console.log('Wallet not connected, showing connection prompt');
-        setIsWalletConnected(false);
         setShowWalletConnect(true);
         setTasks([]);
         setReceivedTasks([]);
@@ -276,12 +271,15 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         // Load stored user data from BACKEND first, then localStorage fallback
         let storedTasks: Record<string, any> = {};
-        let backendAvailable = false;
         
         try {
+          // Ensure backend service has user address set before calling getTasks()
+          const userAddress = simpleWalletService.getAddress();
+          if (userAddress) {
+            backendService.setUserAddress(userAddress);
+          }
           const backendTasks = await backendService.getTasks();
           storedTasks = backendTasks;
-          backendAvailable = true;
           console.log('✅ Loaded tasks from BACKEND:', Object.keys(backendTasks).length);
           console.log('📊 Backend tasks:', backendTasks);
         } catch (backendError) {
@@ -335,15 +333,6 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         console.log('📊 Stored task indices:', Object.keys(storedTasks).map(Number));
         
         const mergedTasks = validIndices
-          .filter((actualBlockchainIndex) => {
-            // Filter out orphaned tasks - if blockchain has a task but no metadata exists, skip it
-            const storedTask = storedTasks[actualBlockchainIndex];
-            if (!storedTask) {
-              console.log(`⚠️ Skipping orphaned task ${actualBlockchainIndex} - no metadata in localStorage`);
-              return false;
-            }
-            return true;
-          })
           .map((actualBlockchainIndex) => {
           const blockchainTask = blockchainTasks[actualBlockchainIndex];
           const storedTask = storedTasks[actualBlockchainIndex];
@@ -358,8 +347,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           if (storedTask) {
             console.log('✅ Found stored data for task blockchain index:', actualBlockchainIndex, 'title:', storedTask.title);
             
-            // CRITICAL: Use localStorage status if available, otherwise use blockchain status
-            const taskStatus = storedTask.status || blockchainTask.status;
+            // CRITICAL: Prefer blockchain status, fallback to stored status
+            const taskStatus = blockchainTask.status || storedTask.status;
             
             // Determine if this is a plain task or encrypted task
             const isPlainTask = storedTask.shouldEncrypt === false || storedTask.isEncrypted === false;
@@ -391,24 +380,22 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             return task;
           } else {
             console.log('⚠️ No stored data found for task index:', actualBlockchainIndex);
-            console.log('ℹ️ This is likely an existing task created before localStorage sync was implemented');
+            console.log('ℹ️ Including blockchain task with encrypted placeholders so it persists in UI');
             
-            // Handle existing tasks gracefully - preserve encrypted state
-            // These are existing blockchain tasks that don't have localStorage data
-            // Show encrypted placeholders instead of hardcoded content
-            // SHOW PLACEHOLDER FOR ALL FIELDS including dueDate
+            // Include task with placeholders; keep blockchain status so completion persists
             return {
               ...blockchainTask,
               id: actualBlockchainIndex,
-              title: `******* ********`, // Encrypted placeholder
-              description: `******* ********`, // Encrypted placeholder
-              dueDate: `******* ********`, // SHOW AS PLACEHOLDER (not Invalid Date)
-              priority: 1, // Will be shown as placeholder by TaskCard
+              title: `******* ********`,
+              description: `******* ********`,
+              dueDate: `******* ********`,
+              priority: 1,
               status: blockchainTask.status,
-              createdAt: `******* ********`, // Encrypted placeholder
-              isEncrypted: true, // Ensure encrypted flag is set
+              createdAt: `******* ********`,
+              isEncrypted: true,
               isShared: blockchainTask.isShared,
-              isLegacy: true // Mark as legacy for identification
+              sharedWith: blockchainTask.sharedWith || [],
+              isLegacy: true
             };
           }
         });
@@ -473,14 +460,34 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
   };
 
   const loadReceivedTasks = async () => {
+    // Skip in demo mode
+    if (isDemoMode) {
+      setReceivedTasks([]);
+      return;
+    }
+    
     setIsLoading(true);
     try {
-      const fetchedReceivedTasks = await realContractService.getReceivedTasks();
+    const fetchedReceivedTasks = await realContractService.getReceivedTasks();
+    // Apply hidden filter persisted per user
+    try {
+      const signer = simpleWalletService.getSigner();
+      const me = await signer.getAddress();
+      const hiddenKey = `hiddenReceivedTasks_${me.toLowerCase()}`;
+      const hiddenMap = JSON.parse(localStorage.getItem(hiddenKey) || '{}');
+      const visible = fetchedReceivedTasks.filter((t: any) => !hiddenMap[t.id]);
+      setReceivedTasks(visible);
+    } catch {
       setReceivedTasks(fetchedReceivedTasks);
+    }
     } catch (error) {
+      // Silently fail in demo mode or if contract not initialized
+      if (isDemoMode || (error instanceof Error && error.message.includes('not initialized'))) {
+        setReceivedTasks([]);
+      } else {
       console.error('Failed to load received tasks:', error);
-      // Don't crash the app - just set empty array
       setReceivedTasks([]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -536,7 +543,6 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
     try {
       console.log('🔗 Connecting wallet...');
       await simpleWalletService.connect();
-      setIsWalletConnected(true);
       setShowWalletConnect(false);
       console.log('✅ Wallet connected successfully');
       
@@ -584,7 +590,14 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       await loadTaskCreationFee();
     } catch (error) {
       console.error('❌ Wallet connection failed:', error);
-      alert(`Wallet connection failed: ${(error as Error).message}`);
+      if ((window as any).addNotification) {
+        (window as any).addNotification({
+          type: 'error',
+          title: 'Wallet Connection Failed',
+          message: (error as Error).message || 'Please try again.',
+          duration: 5000
+        });
+      }
     }
   };
 
@@ -592,7 +605,6 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
     try {
       console.log('🔌 Disconnecting wallet...');
       await simpleWalletService.disconnect();
-      setIsWalletConnected(false);
       setShowWalletConnect(true);
       setTasks([]);
       setReceivedTasks([]);
@@ -600,7 +612,14 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       console.log('✅ Wallet disconnected successfully');
     } catch (error) {
       console.error('❌ Wallet disconnection failed:', error);
-      alert(`Wallet disconnection failed: ${(error as Error).message}`);
+      if ((window as any).addNotification) {
+        (window as any).addNotification({
+          type: 'error',
+          title: 'Disconnect Failed',
+          message: (error as Error).message || 'Please try again.',
+          duration: 5000
+        });
+      }
     }
   };
 
@@ -666,6 +685,16 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         setTasks(prevTasks => [...prevTasks, newTask]);
         setShowTaskForm(false);
         console.log('✅ Plain text task created:', newTask);
+        
+        // Show success notification
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'success',
+            title: '📝 Task Created',
+            message: `Task "${taskData.title}" created successfully!`,
+            duration: 3000
+          });
+        }
         return;
       }
       
@@ -700,6 +729,16 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         setTasks(prevTasks => [...prevTasks, newTask]);
         setShowTaskForm(false);
         console.log('✅ Demo encrypted task created with encrypted placeholders');
+        
+        // Show success notification
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'success',
+            title: 'Task Created (Demo)',
+            message: `Demo task "${taskData.title}" created (not encrypted in demo mode)`,
+            duration: 3000
+          });
+        }
         return;
       }
       
@@ -710,6 +749,21 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         setShowWalletConnect(true);
         setShowTaskForm(false);
         throw new Error('Wallet not connected. Please connect your wallet first.');
+      }
+      // Check correct network (Sepolia 11155111)
+      const walletState = productionWalletService.getState();
+      const currentChainId = Number(walletState.chainId || 0);
+      const expectedChainId = 11155111;
+      if (currentChainId && currentChainId !== expectedChainId) {
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'error',
+            title: 'Wrong Network',
+            message: 'Please switch your wallet to Sepolia testnet and try again.',
+            duration: 6000
+          });
+        }
+        throw new Error('Wrong network: please switch to Sepolia.');
       }
       
       // Ensure contract service is initialized
@@ -771,8 +825,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           if ((window as any).addNotification) {
             (window as any).addNotification({
               type: 'success',
-              title: 'Task Saved',
-              message: 'Task saved to backend server successfully',
+              title: '🔒 ENCRYPTED TASK CREATED',
+              message: 'Task encrypted and saved successfully!',
               duration: 3000
             });
           }
@@ -822,7 +876,24 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       }
     } catch (error) {
       console.error('Failed to create task:', error);
-      alert(`Failed to create task: ${(error as Error).message}`);
+      const message = (error as any)?.message || '';
+      let title = 'Failed to Create Task';
+      let friendly = message;
+      if (message.includes('Failed to initialize FHEVM SDK') || message.includes('HTTP error: status: 503')) {
+        title = 'FHEVM Unavailable';
+        friendly = 'Relayer/KMS temporarily unavailable. Ensure Sepolia is selected and try again.';
+      } else if (message.toLowerCase().includes('wrong network')) {
+        title = 'Wrong Network';
+        friendly = 'Please switch your wallet to Sepolia testnet and retry.';
+      }
+      if ((window as any).addNotification) {
+        (window as any).addNotification({
+          type: 'error',
+          title,
+          message: friendly,
+          duration: 6000
+        });
+      }
       throw error;
     }
   };
@@ -1043,45 +1114,49 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       }
 
       const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
-      console.log('✅ Updating task status to:', newStatus);
+      console.log('✅ Target task status:', newStatus);
 
-      // Update local state immediately for both tasks and receivedTasks
-      setTasks(prev => prev.map(t => 
-        t.id === taskId 
-          ? { ...t, status: newStatus as 'Completed' | 'Pending' }
-          : t
-      ));
-      
-      setReceivedTasks(prev => prev.map(t => 
-        t.id === taskId 
-          ? { ...t, status: newStatus as 'Completed' | 'Pending' }
-          : t
-      ));
-
-      // CRITICAL: Persist the completion status to localStorage
-      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-      if (storedTasks[taskId]) {
-        storedTasks[taskId].status = newStatus;
-        storedTasks[taskId].completedAt = new Date().toISOString();
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
-        console.log('✅ Task completion status saved to localStorage');
+      const isEncrypted = !!(task.isEncrypted && task.shouldEncrypt !== false);
+      // Resolve wallet-scoped storage key for consistency
+      let scopedKey = 'userTaskData';
+      try {
+        const signer = simpleWalletService.getSigner();
+        const me = await signer.getAddress();
+        const normalized = me ? me : '';
+        if (normalized) scopedKey = `userTaskData_${normalized}`;
+      } catch {}
+      if (!isEncrypted) {
+        // Plain task: optimistic local update
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus as 'Completed' | 'Pending' } : t));
+        setReceivedTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus as 'Completed' | 'Pending' } : t));
+        const storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
+        if (storedTasks[taskId]) {
+          storedTasks[taskId].status = newStatus;
+          storedTasks[taskId].completedAt = new Date().toISOString();
+          localStorage.setItem(scopedKey, JSON.stringify(storedTasks));
+        }
+        const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
+        if (newStatus === 'Completed') {
+          completedTasks[taskId] = { completedAt: new Date().toISOString(), taskTitle: task.title };
+        } else {
+          delete completedTasks[taskId];
+        }
+        localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
       }
-
-      // Also save to a separate completed tasks storage for persistence
-      const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
-      if (newStatus === 'Completed') {
-        completedTasks[taskId] = {
-          completedAt: new Date().toISOString(),
-          taskTitle: task.title
-        };
-      } else {
-        delete completedTasks[taskId]; // Remove if uncompleted
-      }
-      localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
 
       // Demo mode - already updated local state and localStorage above
       if (isDemoMode) {
         console.log('✅ Demo: Task status updated and persisted');
+        
+        // Show success notification
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'success',
+            title: 'Task Updated',
+            message: `Task status changed to ${newStatus}`,
+            duration: 3000
+          });
+        }
         return;
       }
 
@@ -1093,12 +1168,41 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
 
       try {
         console.log('✅ Calling blockchain completeTask...');
-        await realContractService.completeTask(taskId);
-        console.log('✅ Task completion confirmed on blockchain');
+        console.log('📝 Note: This will require signing a transaction to update the task status on-chain.');
+        const result = await realContractService.completeTask(taskId);
+        console.log('✅ Task completion confirmed on blockchain:', result);
+        if (isEncrypted) {
+          // Only after confirmation, update UI and storage for encrypted tasks
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus as 'Completed' | 'Pending' } : t));
+          const storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
+          if (storedTasks[taskId]) {
+            storedTasks[taskId].status = newStatus;
+            storedTasks[taskId].completedAt = new Date().toISOString();
+            localStorage.setItem(scopedKey, JSON.stringify(storedTasks));
+          }
+          const completedTasks = JSON.parse(localStorage.getItem('completedTasks') || '{}');
+          if (newStatus === 'Completed') {
+            completedTasks[taskId] = { completedAt: new Date().toISOString(), taskTitle: task.title };
+          } else {
+            delete completedTasks[taskId];
+          }
+          localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
+        }
       } catch (blockchainError) {
         console.error('❌ Blockchain completion failed:', blockchainError);
-        // Don't revert local changes - the task is completed locally
-        // User can manually sync later if needed
+        if (!isEncrypted) {
+          // Revert optimistic update for plain tasks if tx failed
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: task.status } : t));
+          setReceivedTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: task.status } : t));
+        }
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'error',
+            title: 'Completion Failed',
+            message: 'Transaction failed or was rejected.',
+            duration: 4000
+          });
+        }
       }
 
     } catch (error) {
@@ -1134,6 +1238,32 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       // CRITICAL: For encrypted tasks, wait for blockchain transaction BEFORE removing from UI
       const taskToDelete = tasks.find(t => t.id === deletingTask.id);
       
+      // If deleting a received task: hide locally and persist hidden flag
+      const isReceived = !!receivedTasks.find(t => t.id === deletingTask.id);
+      if (isReceived) {
+        try {
+          const signer = simpleWalletService.getSigner();
+          const me = await signer.getAddress();
+          const hiddenKey = `hiddenReceivedTasks_${me.toLowerCase()}`;
+          const hiddenMap = JSON.parse(localStorage.getItem(hiddenKey) || '{}');
+          hiddenMap[deletingTask.id] = true;
+          localStorage.setItem(hiddenKey, JSON.stringify(hiddenMap));
+        } catch (e) {
+          console.warn('Could not persist hidden flag for received task:', e);
+        }
+        setReceivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
+        setDeletingTask(null);
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'success',
+            title: 'Hidden',
+            message: 'Task hidden from Received.',
+            duration: 2500
+          });
+        }
+        return;
+      }
+
       // Demo mode OR plain text task - delete immediately from localStorage
       if (isDemoMode || (taskToDelete && !taskToDelete.isEncrypted)) {
         console.log('🗑️ Demo/Plain text: Deleting immediately from localStorage');
@@ -1169,6 +1299,16 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         
         console.log('✅ Demo/Plain text: Task deleted from localStorage and UI');
         setDeletingTask(null);
+        
+        // Show success notification
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'success',
+            title: 'Task Deleted',
+            message: 'Task has been permanently deleted.',
+            duration: 3000
+          });
+        }
         return;
       }
       
@@ -1209,10 +1349,29 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           setReceivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
           
           console.log('✅ Encrypted task: Deleted from blockchain, localStorage, and UI');
+          
+          // Show success notification
+          if ((window as any).addNotification) {
+            (window as any).addNotification({
+              type: 'success',
+              title: 'Task Deleted',
+              message: 'Encrypted task has been permanently deleted from blockchain.',
+              duration: 3000
+            });
+          }
         } catch (blockchainError) {
           console.error('❌ Blockchain deletion failed:', blockchainError);
-          // Transaction failed - DO NOT remove from UI
-          alert('❌ Deletion failed: Transaction was rejected or failed. Task remains in your list.');
+          
+          // Show error notification
+          if ((window as any).addNotification) {
+            (window as any).addNotification({
+              type: 'error',
+              title: 'Deletion Failed',
+              message: 'Failed to delete encrypted task. Please try again.',
+              duration: 4000
+            });
+          }
+          // Transaction failed - DO NOT remove from UI (already handled by notification above)
         }
       }
       
@@ -1224,7 +1383,14 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       
     } catch (error) {
       console.error('❌ Failed to delete task:', error);
-      alert(`Failed to delete task: ${(error as Error).message}`);
+      if ((window as any).addNotification) {
+        (window as any).addNotification({
+          type: 'error',
+          title: 'Delete Failed',
+          message: (error as Error).message || 'Please try again.',
+          duration: 5000
+        });
+      }
       
       // Ensure the task is restored in UI if deletion failed
       await loadTasks();
@@ -1273,6 +1439,30 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       const selectedTaskIds = Array.from(selectedTasks);
       setTasks(prev => prev.filter(task => !selectedTasks.has(task.id)));
       setReceivedTasks(prev => prev.filter(task => !selectedTasks.has(task.id)));
+
+      // If clearing from Received tab, persist hidden flags and skip blockchain/local storage deletion
+      if (activeTab === 'received-tasks') {
+        try {
+          const signer = simpleWalletService.getSigner();
+          const me = await signer.getAddress();
+          const hiddenKey = `hiddenReceivedTasks_${me.toLowerCase()}`;
+          const hiddenMap = JSON.parse(localStorage.getItem(hiddenKey) || '{}');
+          selectedTaskIds.forEach((id: number) => hiddenMap[id] = true);
+          localStorage.setItem(hiddenKey, JSON.stringify(hiddenMap));
+        } catch {}
+        clearSelection();
+        setShowBulkDeleteModal(false);
+        setIsLoading(false);
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'success',
+            title: 'Received Cleared',
+            message: 'Selected received tasks hidden.',
+            duration: 2500
+          });
+        }
+        return;
+      }
       
       // PERMANENTLY remove from localStorage
       const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
@@ -1348,7 +1538,14 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       
     } catch (error) {
       console.error('Failed to bulk remove tasks:', error);
-      alert('Bulk removal failed. Please try again.');
+      if ((window as any).addNotification) {
+        (window as any).addNotification({
+          type: 'error',
+          title: 'Bulk Removal Failed',
+          message: 'Please try again.',
+          duration: 5000
+        });
+      }
       
       // Restore all tasks if bulk operation failed
       await loadTasks();
@@ -1407,6 +1604,16 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           
           setDecryptingTask(null);
           console.log('✅ Demo: Task decrypted successfully');
+          
+          // Show success notification
+          if ((window as any).addNotification) {
+            (window as any).addNotification({
+              type: 'success',
+              title: 'Task Decrypted',
+              message: `Task "${storedTask.title}" decrypted successfully!`,
+              duration: 3000
+            });
+          }
           return;
         } else {
           throw new Error('Demo: Task data not found in localStorage');
@@ -1476,41 +1683,114 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           // Check if task is in receivedTasks or my tasks
           const isReceivedTask = receivedTasks.some(t => t.id === decryptingTask.id);
           
+          // IMPORTANT: Get the original readable text from backend/localStorage
+          // The result.decryptedData may contain numeric hashes from blockchain
+          // We need the actual readable text that was stored when creating the task
+          let actualDecryptedData = result.decryptedData;
+          
+          // Try to get original task data from backend first, then localStorage
+          if (!isReceivedTask) {
+            try {
+              // Try 1: Backend (most reliable)
+              try {
+                const backendTasks = await backendService.getTasks();
+                if (backendTasks[decryptingTask.id]) {
+                  const backendTask = backendTasks[decryptingTask.id];
+                  actualDecryptedData = {
+                    title: backendTask.title,
+                    description: backendTask.description || result.decryptedData.description || '',
+                    dueDate: backendTask.dueDate || result.decryptedData.dueDate,
+                    priority: backendTask.priority || result.decryptedData.priority
+                  };
+                  console.log('✅ Using original task data from backend:', actualDecryptedData);
+                }
+              } catch (backendError) {
+                console.warn('⚠️ Backend lookup failed, trying localStorage:', backendError);
+                
+                // Try 2: localStorage (fallback)
+                const userAddress = simpleWalletService.getAddress();
+                if (userAddress) {
+                  const userKey = `userTaskData_${userAddress}`;
+                  const storedTasks = JSON.parse(localStorage.getItem(userKey) || localStorage.getItem('userTaskData') || '{}');
+                  const originalTask = storedTasks[decryptingTask.id];
+                  
+                  if (originalTask && originalTask.title && !result.decryptedData.title?.includes('Â')) {
+                    // Use original task data if available and decrypted data looks garbled
+                    actualDecryptedData = {
+                      title: originalTask.title,
+                      description: originalTask.description || result.decryptedData.description || '',
+                      dueDate: originalTask.dueDate || result.decryptedData.dueDate,
+                      priority: originalTask.priority || result.decryptedData.priority
+                    };
+                    console.log('✅ Using original task data from localStorage:', actualDecryptedData);
+                  }
+                }
+              }
+            } catch (error) {
+              console.warn('⚠️ Could not get original task data, using decrypted data:', error);
+            }
+          }
+          
           if (isReceivedTask) {
             setReceivedTasks(prev => prev.map(task => 
               task.id === decryptingTask.id 
                 ? { 
                     ...task, 
-                    title: result.decryptedData.title,
-                    dueDate: result.decryptedData.dueDate,
-                    priority: result.decryptedData.priority
+                    title: actualDecryptedData.title,
+                    description: actualDecryptedData.description || task.description,
+                    dueDate: actualDecryptedData.dueDate,
+                    priority: actualDecryptedData.priority,
+                    isEncrypted: false // Mark as decrypted
                   }
                 : task
             ));
-            console.log('Received task decrypted and updated:', result.decryptedData);
+            console.log('Received task decrypted and updated:', actualDecryptedData);
           } else {
           setTasks(prev => prev.map(task => 
             task.id === decryptingTask.id 
               ? { 
                   ...task, 
-                  title: result.decryptedData.title,
-                  dueDate: result.decryptedData.dueDate,
-                  priority: result.decryptedData.priority
+                  title: actualDecryptedData.title,
+                  description: actualDecryptedData.description || task.description,
+                  dueDate: actualDecryptedData.dueDate,
+                  priority: actualDecryptedData.priority,
+                  // Keep isEncrypted=true so task can be shared (decryption just makes it readable)
+                  isEncrypted: true,
+                  shouldEncrypt: true
                 }
               : task
           ));
-            console.log('My task decrypted and updated:', result.decryptedData);
+            console.log('My task decrypted and updated:', actualDecryptedData);
           }
         } else {
           console.log('Task decrypted successfully via real contract:', decryptingTask.title);
         }
         
         setDecryptingTask(null);
+        
+        // Show success notification
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'success',
+            title: 'Task Decrypted',
+            message: `Task decrypted successfully!`,
+            duration: 3000
+          });
+        }
       } else {
         // ✅ PRIVACY FIX: Don't show error messages, keep asterisks
         console.log('Decryption failed - keeping encrypted state:', result.error);
         setDecryptingTask(null);
-        // Don't throw error - just keep the task encrypted with asterisks
+        
+        // Show error notification
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'error',
+            title: 'Decryption Failed',
+            message: result.error || 'Unable to decrypt task. Please try again.',
+            duration: 4000
+          });
+        }
       }
       
     } catch (error: any) {
@@ -1521,17 +1801,31 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         name: error?.name
       });
       
-      // Show user-friendly error message
+      // Show user-friendly error notification
+      let errorTitle = 'Decryption Failed';
+      let errorMessage = error?.message || 'Unknown error occurred';
+      
       if (error?.message?.includes('requestTaskDecryption method not found')) {
-        alert('❌ Contract Error: Decryption method not found. Please check if the contract is properly deployed.');
+        errorTitle = 'Contract Error';
+        errorMessage = 'Decryption method not found. Please check if the contract is properly deployed.';
       } else if (error?.message?.includes('Wallet not connected')) {
-        alert('❌ Wallet Error: Please connect your wallet first.');
+        errorTitle = 'Wallet Error';
+        errorMessage = 'Please connect your wallet first.';
       } else if (error?.message?.includes('User rejected')) {
-        alert('❌ Transaction Rejected: You cancelled the transaction in your wallet.');
+        errorTitle = 'Transaction Rejected';
+        errorMessage = 'You cancelled the transaction in your wallet.';
       } else if (error?.message?.includes('Transaction timeout')) {
-        alert('❌ Transaction Timeout: The transaction took too long to confirm. Please try again.');
-      } else {
-        alert(`❌ Decryption Failed: ${error?.message || 'Unknown error occurred'}`);
+        errorTitle = 'Transaction Timeout';
+        errorMessage = 'The transaction took too long to confirm. Please try again.';
+      }
+      
+      if ((window as any).addNotification) {
+        (window as any).addNotification({
+          type: 'error',
+          title: errorTitle,
+          message: errorMessage,
+          duration: 5000
+        });
       }
       
       setDecryptingTask(null);
@@ -1636,7 +1930,14 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       if (isDemoMode) {
         console.log('🎮 Demo: Sharing task', taskId, 'with', addresses.length, 'recipient(s)');
       setSharingTask(null);
-        alert(`Demo: Task shared with ${addresses.length} recipient(s)`);
+        if ((window as any).addNotification) {
+          (window as any).addNotification({
+            type: 'info',
+            title: 'Demo Share',
+            message: `Task shared with ${addresses.length} recipient(s).`,
+            duration: 3000
+          });
+        }
         return;
       }
 
@@ -1645,8 +1946,8 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         throw new Error('Contract service not initialized');
       }
 
-      // Find the task
-      const task = tasks.find(t => t.id === taskId);
+      // Find the task (from either list)
+      const task = tasks.find(t => t.id === taskId) || receivedTasks.find(t => t.id === taskId);
       if (!task) {
         throw new Error('Task not found');
       }
@@ -1655,6 +1956,9 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
       if (!task.isEncrypted || task.shouldEncrypt === false) {
         throw new Error('Plain tasks cannot be shared. Only encrypted tasks can be shared.');
       }
+
+      // Use stable on-chain taskId when available (share is byId)
+      const shareTaskId = (task as any).stableTaskId ?? task.id;
 
       // Share with each recipient
       const sharedRecipients: string[] = [];
@@ -1666,13 +1970,13 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
 
         try {
           console.log(`📤 Sharing with ${address}...`);
-          await realContractService.shareTask(taskId, address);
+          await realContractService.shareTask(shareTaskId, address);
           sharedRecipients.push(address);
           console.log(`✅ Shared with ${address}`);
     } catch (error) {
           console.error(`❌ Failed to share with ${address}:`, error);
           throw new Error(`Failed to share with ${address}: ${(error as Error).message}`);
-        }
+    }
       }
       
       // Update local state to mark task as shared
@@ -1741,8 +2045,11 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
   };
 
 
-  const pendingTasks = tasks.filter(task => task.status === 'Pending');
-  const completedTasks = tasks.filter(task => task.status === 'Completed');
+  const filteredBase = encryptedOnly && activeTab === 'my-tasks'
+    ? tasks.filter(t => t.isEncrypted && t.shouldEncrypt !== false)
+    : tasks;
+  const pendingTasks = filteredBase.filter(task => task.status === 'Pending');
+  const completedTasks = filteredBase.filter(task => task.status === 'Completed');
 
   // Show wallet connection prompt if wallet not connected
   if (showWalletConnect) {
@@ -1792,7 +2099,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-xl font-semibold text-zama-gray-900">
-              📋 My Tasks ({tasks.length})
+              📋 My Tasks ({filteredBase.length})
             </h2>
             <div className="mt-1 flex space-x-2">
               <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
@@ -1803,24 +2110,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             </div>
           </div>
           
-          {/* Wallet Actions */}
-              {simpleWalletService.isWalletConnected() && (
-            <div className="flex items-center space-x-3">
-              <div className="text-right">
-                <p className="text-sm text-zama-gray-600">
-                  {simpleWalletService.getAddress()?.slice(0, 6)}...{simpleWalletService.getAddress()?.slice(-4)}
-                </p>
-                <p className="text-xs text-zama-gray-500">Connected</p>
-            </div>
-              <button
-                onClick={disconnectWallet}
-                className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                title="Disconnect Wallet"
-              >
-                Disconnect
-              </button>
-          </div>
-          )}
+          {/* Wallet status removed - already shown in main header */}
           <button
             onClick={() => setShowTaskForm(true)}
             className="btn-primary flex items-center space-x-2"
@@ -1844,7 +2134,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
           >
             <div className="flex items-center justify-center space-x-2">
               <Shield className="w-4 h-4" />
-              <span>My Tasks ({tasks.length})</span>
+              <span>My Tasks ({filteredBase.length})</span>
             </div>
           </button>
           <button
@@ -1863,36 +2153,55 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-          <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
-            <div className="flex items-center justify-center mb-1">
-              <Shield className="w-5 h-5 text-zama-yellow" />
+        {activeTab === 'received-tasks' ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+            <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
+              <div className="flex items-center justify-center mb-1">
+                <Users className="w-5 h-5 text-zama-yellow" />
+              </div>
+              <div className="text-lg font-semibold text-zama-gray-900">{receivedTasks.length}</div>
+              <div className="text-sm text-zama-gray-600">Received</div>
             </div>
-            <div className="text-lg font-semibold text-zama-gray-900">{tasks.length}</div>
-            <div className="text-sm text-zama-gray-600">Encrypted Tasks</div>
-          </div>
-          <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
-            <div className="flex items-center justify-center mb-1">
-              <Clock className="w-5 h-5 text-blue-500" />
+            <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
+              <div className="flex items-center justify-center mb-1">
+                <CheckCircle className="w-5 h-5 text-green-500" />
+              </div>
+              <div className="text-lg font-semibold text-zama-gray-900">{receivedTasks.filter(t => decryptedTasks.has(t.id)).length}</div>
+              <div className="text-sm text-zama-gray-600">Decrypted</div>
             </div>
-            <div className="text-lg font-semibold text-zama-gray-900">{pendingTasks.length}</div>
-            <div className="text-sm text-zama-gray-600">Pending</div>
-          </div>
-          <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
-            <div className="flex items-center justify-center mb-1">
-              <CheckCircle className="w-5 h-5 text-green-500" />
+            <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
+              <div className="flex items-center justify-center mb-1">
+                <Clock className="w-5 h-5 text-blue-500" />
+              </div>
+              <div className="text-lg font-semibold text-zama-gray-900">{receivedTasks.filter(t => !decryptedTasks.has(t.id)).length}</div>
+              <div className="text-sm text-zama-gray-600">Encrypted</div>
             </div>
-            <div className="text-lg font-semibold text-zama-gray-900">{completedTasks.length}</div>
-            <div className="text-sm text-zama-gray-600">Completed</div>
           </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-2">
-          <div className="text-sm text-zama-gray-600 flex items-center">
-            💰 Task Creation Fee: {taskCreationFee} ETH
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+            <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
+              <div className="flex items-center justify-center mb-1">
+                <Shield className="w-5 h-5 text-zama-yellow" />
+              </div>
+              <div className="text-lg font-semibold text-zama-gray-900">{filteredBase.length}</div>
+              <div className="text-sm text-zama-gray-600">Tasks</div>
+            </div>
+            <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
+              <div className="flex items-center justify-center mb-1">
+                <Clock className="w-5 h-5 text-blue-500" />
+              </div>
+              <div className="text-lg font-semibold text-zama-gray-900">{pendingTasks.length}</div>
+              <div className="text-sm text-zama-gray-600">Pending</div>
+            </div>
+            <div className="text-center p-3 bg-zama-gray-50 rounded-lg">
+              <div className="flex items-center justify-center mb-1">
+                <CheckCircle className="w-5 h-5 text-green-500" />
+              </div>
+              <div className="text-lg font-semibold text-zama-gray-900">{completedTasks.length}</div>
+              <div className="text-sm text-zama-gray-600">Completed</div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Tasks List */}
@@ -1902,7 +2211,7 @@ export function TaskManager({ externalDemoMode = false }: { externalDemoMode?: b
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-zama-yellow mx-auto mb-4"></div>
             <p className="text-zama-gray-600">Loading encrypted tasks...</p>
           </div>
-        ) : tasks.length === 0 ? (
+        ) : (tasks.length === 0 && activeTab === 'my-tasks') ? (
           <div className="card text-center py-12">
             <Shield className="w-12 h-12 text-zama-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-zama-gray-900 mb-2">No tasks yet</h3>

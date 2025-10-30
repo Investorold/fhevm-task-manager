@@ -104,6 +104,7 @@ class FhevmService {
       let initSDK, createInstance, SepoliaConfig;
       try {
         console.log('🔧 Trying CDN import...');
+        // @ts-ignore - CDN import not typed
         const cdnModule = await import('https://cdn.zama.ai/relayer-sdk-js/0.2.0/relayer-sdk-js.js');
         
         // Check if module has required exports
@@ -285,6 +286,7 @@ class FhevmService {
       this.isInitialized = true;
     } catch (error) {
       console.error('❌ Failed to initialize FHEVM SDK:', error);
+      // @ts-ignore - error type unknown
       throw new Error(`Failed to initialize FHEVM SDK: ${error.message}`);
     }
   }
@@ -350,6 +352,7 @@ class FhevmService {
       return encrypted;
     } catch (error) {
       console.error('❌ Encryption failed:', error);
+      // @ts-ignore - error type unknown
       throw new Error(`Failed to encrypt data: ${error.message}`);
     }
   }
@@ -418,6 +421,7 @@ class FhevmService {
       return encrypted;
     } catch (error) {
       console.error('❌ Encryption failed:', error);
+      // @ts-ignore - error type unknown
       throw new Error(`Failed to encrypt data: ${error.message}`);
     }
   }

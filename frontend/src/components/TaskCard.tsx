@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { CheckCircle, Trash2, Share2, Clock, Shield, Eye, Users, ChevronDown } from 'lucide-react';
+import { CheckCircle, Trash2, Share2, Clock, Shield, Eye, Users, ChevronDown, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Task } from '../types';
 
@@ -8,6 +8,7 @@ interface TaskCardProps {
   onComplete: () => void;
   onDelete: () => void;
   onShare: () => void;
+  onReply?: () => void; // New reply handler
   onDecrypt?: () => void;
   // onViewHistory?: () => void;
   isDecrypted?: boolean;
@@ -22,6 +23,7 @@ export function TaskCard({
   onComplete, 
   onDelete, 
   onShare, 
+  onReply,
   onDecrypt, 
   /* onViewHistory, */ 
   isDecrypted = false, 
@@ -141,12 +143,16 @@ export function TaskCard({
               <Shield className="w-4 h-4 text-zama-yellow" />
               <span className="text-xs text-zama-gray-500">
                 {(() => {
-                  // Plain tasks (not encrypted)
-                  if (!task.isEncrypted || task.shouldEncrypt === false) {
+                  // If task was intended to be encrypted and is now decrypted, show Decrypted
+                  if (isDecrypted && task.shouldEncrypt !== false) {
+                    return 'Decrypted';
+                  }
+                  // Plain tasks (explicitly not encrypted)
+                  if (task.shouldEncrypt === false) {
                     return 'Plain';
                   }
-                  // Encrypted tasks
-                  return isDecrypted ? 'Decrypted' : 'Encrypted';
+                  // Default encrypted state
+                  return 'Encrypted';
                 })()}
               </span>
             </div>
@@ -220,8 +226,9 @@ export function TaskCard({
             </button>
           )}
           
-          {/* Show complete button for decrypted encrypted tasks OR plain tasks */}
-          {((isDecrypted && task.isEncrypted) || (!task.isEncrypted || task.shouldEncrypt === false)) && task.status === 'Pending' && (
+          {/* Show complete button for tasks - but not for received tasks, and only if decrypted (for encrypted tasks) */}
+          {task.status === 'Pending' && !task.originalOwner && 
+           ((task.isEncrypted && task.shouldEncrypt !== false) ? isDecrypted : true) && (
             <button
               onClick={onComplete}
               className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
@@ -233,8 +240,19 @@ export function TaskCard({
           
           {/* Edit functionality removed for privacy - tasks are immutable after creation */}
           
-          {/* Only show share button for encrypted tasks (plain tasks cannot be shared) */}
-          {isDecrypted && task.status !== 'Completed' && !task.isShared && task.isEncrypted && task.shouldEncrypt !== false && (
+          {/* Reply button for received tasks - only show after decryption */}
+          {isDecrypted && task.originalOwner && onReply && (
+            <button
+              onClick={onReply}
+              className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+              title="Reply to Task"
+            >
+              <MessageSquare className="w-5 h-5" />
+            </button>
+          )}
+          
+          {/* Only show share button for encrypted tasks (plain tasks cannot be shared) - and not for received tasks */}
+          {isDecrypted && task.status !== 'Completed' && !task.isShared && task.isEncrypted && task.shouldEncrypt !== false && !task.originalOwner && (
             <button
               onClick={onShare}
               className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -244,8 +262,8 @@ export function TaskCard({
             </button>
           )}
           
-          {/* Delete button - now visible for all non-shared tasks */}
-          {!task.isShared && (
+          {/* Delete button - allow for my tasks; require decrypt first if encrypted. Hide for received tasks. */}
+          {!task.originalOwner && (!task.isEncrypted || task.shouldEncrypt === false || isDecrypted) && (
             <button
               onClick={onDelete}
               className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -266,8 +284,8 @@ export function TaskCard({
             </button>
           )} */}
           
-          {/* Show shared indicator with recipients dropdown */}
-          {task.isShared && (
+          {/* Show shared indicator with recipients dropdown - only for tasks I own and shared (not received tasks) */}
+          {task.isShared && !task.originalOwner && (
             <div className="relative" ref={recipientsDropdownRef}>
               <button
                 onClick={() => setShowRecipients(!showRecipients)}
@@ -291,7 +309,7 @@ export function TaskCard({
                     </h4>
                   </div>
                   <div className="max-h-48 overflow-y-auto">
-                    {recipients.map((recipient, index) => (
+                    {recipients.map((recipient: string, index: number) => (
                       <div
                         key={index}
                         className="p-3 border-b border-purple-50 last:border-b-0 hover:bg-purple-50 transition-colors"

@@ -91,8 +91,69 @@ fhevm-task-manager/
 
 ## 🔐 Contract Addresses
 
-### Sepolia Testnet
-- **TaskManager**: `0xBd0EAE395C084154d159554287f1eAA89E700256`
+### Sepolia Testnet (Verified)
+- **TaskManager**: `0xe8602589175597668f7dE429422FED0A3B955cD9`
+- **Etherscan**: https://sepolia.etherscan.io/address/0xe8602589175597668f7dE429422FED0A3B955cD9
+- **Features**: Stable task IDs, owner-aware sharing, completed task protection
+
+## 🌐 Live Demo
+
+### Vercel Deployment
+**Status**: ✅ Deployed and Live!
+
+**Live URL**: **[https://fhevm-task-manager.vercel.app/](https://fhevm-task-manager.vercel.app/)**
+
+🚀 **Try it now!** Click the link above to test the app in your browser. Connect your MetaMask wallet on Sepolia testnet to create encrypted tasks.
+
+#### Deploy to Vercel
+
+1. **Install Vercel CLI**:
+   ```bash
+   npm i -g vercel
+   ```
+
+2. **Navigate to frontend directory**:
+   ```bash
+   cd frontend
+   ```
+
+3. **Deploy**:
+   ```bash
+   vercel
+   ```
+
+4. **Follow prompts**:
+   - Link to existing project or create new
+   - Set root directory: `frontend`
+   - Build command: `npm run build`
+   - Output directory: `dist`
+   - Install command: `npm install`
+
+5. **Environment Variables** (if needed):
+   - No environment variables required - all config is in `src/config/contract.ts`
+
+#### Or Deploy via Vercel Dashboard
+
+1. Go to [vercel.com](https://vercel.com)
+2. Import your Git repository
+3. Set:
+   - **Framework Preset**: Vite
+   - **Root Directory**: `frontend`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+4. Deploy
+
+#### Post-Deployment
+
+After deployment, verify cross-origin isolation:
+1. Open browser DevTools (F12)
+2. Check Console for errors
+3. Run: `console.log(self.crossOriginIsolated)` - should be `true`
+4. Check Network tab - responses should have:
+   - `Cross-Origin-Opener-Policy: same-origin`
+   - `Cross-Origin-Embedder-Policy: require-corp`
+
+The `vercel.json` file automatically configures these headers.
 
 ## 🛠️ Troubleshooting
 

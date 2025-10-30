@@ -13,13 +13,13 @@ const TASK_MANAGER_ABI = [
   "function createTaskWithText(bytes32 encryptedTitle, bytes32 encryptedDescription, bytes32 encryptedDueDate, bytes32 encryptedPriority, bytes inputProof) external payable",
   "function createTaskWithNumbers(bytes32 encryptedTitle, bytes32 encryptedDueDate, bytes32 encryptedPriority, bytes32 encryptedNumericId, bytes inputProof) external payable",
   "function completeTask(uint256 taskIndex) external",
-  "function deleteTask(uint256 taskIndex) external",
+  "function deleteTaskById(uint256 taskId) external",
   "function editTask(uint256 taskIndex, bytes32 newEncryptedTitle, bytes32 newEncryptedDueDate, bytes32 newEncryptedPriority, bytes inputProof) external",
-  "function shareTask(uint256 taskIndex, address recipient) external",
+  "function shareTaskById(uint256 taskId, address recipient) external",
   
   // Decryption functions
-  "function requestTaskDecryption(uint256 taskIndex) external",
-  "function requestSharedTaskDecryption(uint256 taskIndex, address originalOwner) external",
+  "function requestTaskDecryptionById(uint256 taskId) external",
+  "function requestSharedTaskDecryptionById(uint256 taskId, address originalOwner) external",
   "function taskDecryptionCallback(uint256 requestId, bytes memory cleartexts, bytes memory decryptionProof) external",
   
   // Fee and admin functions
@@ -33,15 +33,16 @@ const TASK_MANAGER_ABI = [
   "function callbackCount(uint256 requestId, bytes memory cleartexts, bytes memory decryptionProof) external",
   "function lastDueSoonCount(address user) external view returns (uint32)",
   "function getTasks(address user) external view returns (tuple(bytes32 title, bytes32 description, bytes32 dueDate, bytes32 priority, bytes32 numericId, uint8 status)[] memory)",
+  "function getTaskId(address owner_, uint256 index) external view returns (uint256)",
+  "function getTaskIndex(address owner_, uint256 taskId) external view returns (uint256)",
   
   // Shared tasks functions
   "function getSharedTasks(address recipient) external view returns (uint256[] memory)",
-  "function taskOwners(uint256 taskIndex) external view returns (address)",
-  "function isTaskSharedWith(address recipient, uint256 taskIndex) external view returns (bool)",
+  "function isTaskSharedWith(address recipient, address owner, uint256 taskId) external view returns (bool)",
 
   // Events
   "event DecryptionRequested(uint256 requestId, address indexed initiator)",
-  "event TaskShared(uint256 indexed taskIndex, address indexed owner, address indexed recipient)",
+  "event TaskShared(uint256 indexed taskId, address indexed owner, address indexed recipient)",
   "event TaskDecrypted(uint256 indexed requestId, address indexed user, uint64 title, uint64 dueDate, uint8 priority)",
   "event Debug(string message, uint256 value)"
 ];
@@ -158,20 +159,20 @@ class RealContractService {
 
       // Try to get shared task indices for this user
       // IMPORTANT: The address must match exactly how it was stored in the contract
-      let sharedTaskIndices: number[] = [];
+      let sharedTaskIds: number[] = [];
       try {
         // Try with checksummed address first
         const checksumAddress = ethers.getAddress(userAddress);
         console.log('🔍 Querying getSharedTasks with checksum address:', checksumAddress);
-        sharedTaskIndices = await this.contract.getSharedTasks(checksumAddress);
-        console.log('🔍 Found shared task indices (checksum):', sharedTaskIndices);
-
+        sharedTaskIds = await this.contract.getSharedTasks(checksumAddress);
+        console.log('🔍 Found shared task IDs (checksum):', sharedTaskIds);
+        
         // If empty, try with lowercase address (some contracts store lowercase)
-        if (sharedTaskIndices.length === 0) {
+        if (sharedTaskIds.length === 0) {
           console.log('🔍 Trying lowercase address...');
           console.log('🔍 Querying getSharedTasks with lowercase address:', userAddress.toLowerCase());
-          sharedTaskIndices = await this.contract.getSharedTasks(userAddress.toLowerCase());
-          console.log('🔍 Found shared task indices (lowercase):', sharedTaskIndices);
+          sharedTaskIds = await this.contract.getSharedTasks(userAddress.toLowerCase());
+          console.log('🔍 Found shared task IDs (lowercase):', sharedTaskIds);
         }
       } catch (error: any) {
         const errorCode = error?.code;
@@ -206,26 +207,40 @@ class RealContractService {
         return [];
       }
 
-      if (sharedTaskIndices.length === 0) {
+      if (sharedTaskIds.length === 0) {
         console.log('ℹ️ No shared tasks found for address:', userAddress);
         return [];
       }
       
-      console.log(`✅ Found ${sharedTaskIndices.length} shared task(s) for user`);
+      console.log(`✅ Found ${sharedTaskIds.length} shared task(s) for user`);
 
       // Get the actual tasks from the original owners
       const receivedTasks: Task[] = [];
       
-      for (const taskIndex of sharedTaskIndices) {
+      for (const taskId of sharedTaskIds) {
         try {
-          // Get the original owner of this task
-          const originalOwner = await this.contract.taskOwners(taskIndex);
+          // Resolve original owner from TaskShared logs for this taskId
+          const recipientAddress = ethers.getAddress(userAddress);
+          const filter = this.contract.filters.TaskShared(taskId, null, recipientAddress);
+          const logs = await this.contract.queryFilter(filter, 0, 'latest');
+          const last = logs.at(-1);
+          let originalOwner: string = ethers.ZeroAddress;
+          if (last) {
+            try {
+              const parsed = this.contract.interface.parseLog(last);
+              originalOwner = parsed?.args?.owner ?? ethers.ZeroAddress;
+            } catch {
+              // Fall through with ZeroAddress
+            }
+          }
           
           // Get the task from the original owner
+          // Resolve current index for this (owner, taskId)
+          const taskIndex = await this.contract.getTaskIndex(originalOwner, taskId);
           const ownerTasks = await this.contract.getTasks(originalOwner);
           
-          if (taskIndex < ownerTasks.length) {
-            const sharedTask = ownerTasks[taskIndex];
+          if (Number(taskIndex) < ownerTasks.length) {
+            const sharedTask = ownerTasks[Number(taskIndex)];
             
             // Extract priority and dueDate if available
             // NOTE: In FHEVM, priority and dueDate are encrypted as euint8 and euint64
@@ -301,7 +316,7 @@ class RealContractService {
             // For now, they'll show as "Not Available" until decrypted
             
             console.log('📊 Final extracted task data for received task:', {
-              taskIndex,
+              taskId,
               priority: priority || 'Not Available (encrypted)',
               dueDate: dueDate || 'Not Available (encrypted)',
               status: sharedTask.status
@@ -311,18 +326,21 @@ class RealContractService {
             // CRITICAL: Received tasks must ALWAYS be encrypted initially
             // DO NOT use localStorage data - recipient should not have sender's localStorage
             // Status MUST come from blockchain, not localStorage
-            const taskStatus = sharedTask.status === 0 ? 'Pending' : 'Completed';
+            // Handle bigint status values properly (0n = Pending, 1n = Completed)
+            const statusValue = typeof sharedTask.status === 'bigint' ? Number(sharedTask.status) : sharedTask.status;
+            const taskStatus = statusValue === 0 ? 'Pending' : 'Completed';
             
             // Log raw status to debug
             console.log('📊 Raw blockchain status for received task:', {
-              taskIndex,
+              taskId,
               rawStatus: sharedTask.status,
-              statusType: typeof sharedTask.status,
+              rawStatusType: typeof sharedTask.status,
+              statusValue,
               mappedStatus: taskStatus
             });
             
             const task: Task = {
-              id: taskIndex,
+              id: Number(taskId),
               title: `******* ********`, // ALWAYS encrypted - recipient cannot see without decryption
               description: `******* ********`, // ALWAYS encrypted
               dueDate: dueDate, // Try to use extracted dueDate, or empty string (will show "Not Available")
@@ -330,9 +348,10 @@ class RealContractService {
               status: taskStatus, // CRITICAL: Use blockchain status, NEVER localStorage
               createdAt: '', // Empty string - won't cause issues
               isEncrypted: true, // CRITICAL: ALWAYS true for received tasks until decrypted
+              shouldEncrypt: true, // CRITICAL: Must be set to true so it's not shown as "Plain"
               isShared: true,
               originalOwner: originalOwner, // Store original owner for decryption
-              blockchainIndex: taskIndex // Store blockchain index for decryption
+              blockchainIndex: Number(taskIndex) // Store current index for decryption by index fallback
             };
             
             // Validate task is properly encrypted
@@ -345,7 +364,7 @@ class RealContractService {
             
             receivedTasks.push(task);
             console.log('✅ Added shared task:', {
-              taskIndex,
+              taskId,
               owner: originalOwner,
               status: task.status,
               priority: task.priority || 'Not Available',
@@ -356,7 +375,7 @@ class RealContractService {
             });
           }
     } catch (error) {
-          console.warn('⚠️ Failed to load shared task:', taskIndex, error);
+          console.warn('⚠️ Failed to load shared task:', taskId, error);
         }
       }
 
@@ -720,11 +739,6 @@ class RealContractService {
 
       console.log('🔍 Combined encrypted text input:', combinedResult);
       console.log('📍 Creating task on contract address:', this.contractAddress);
-      console.log('📍 Expected new contract address: 0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC');
-      
-      if (this.contractAddress !== '0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC') {
-        console.warn('⚠️ WARNING: Creating task on old contract address! Task will have ACL issues.');
-      }
       
       // Use ethers.js contract with the correct ABI for createTaskWithText
       // Handles are already in the correct format
@@ -962,16 +976,8 @@ class RealContractService {
     }
 
     try {
-      // Known problematic handle from old contract - will skip it during decryption
-      const problematicHandle = '0x53f30c39c7633e6b72b12d6646171300203e4a2dfeff0000000000aa36a70500';
-      
       console.log('🔓 Starting USER DECRYPTION for task ID:', taskId);
       console.log('📍 Contract address being used:', this.contractAddress);
-      console.log('📍 Expected new contract address: 0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC');
-      
-      if (this.contractAddress !== '0xE043a4515E7b304ec7ad796A6A195Ab2b8b57fBC') {
-        console.warn('⚠️ WARNING: Using old contract address! Decryption may fail due to ACL.');
-      }
       
       // Check if wallet is connected
       const signer = simpleWalletService.getSigner();
@@ -984,7 +990,7 @@ class RealContractService {
         console.warn('⚠️ FHEVM not ready for decryption, initializing...');
         await fhevmService.initialize();
       }
-
+      
       // Get FHEVM instance for user decryption
       const fhevmInstance = fhevmService.getInstance();
       if (!fhevmInstance) {
@@ -992,7 +998,7 @@ class RealContractService {
       }
       
       const userAddress = await signer.getAddress();
-      const taskIndex = taskId;
+      const taskIndex = taskId; // legacy local lookup
       console.log('🔓 Using task index:', taskIndex);
       console.log('🔓 User address:', userAddress);
       
@@ -1044,16 +1050,7 @@ class RealContractService {
         { handle: normalizeHandle(encryptedTask.description), contractAddress: this.contractAddress, field: 'description' },
         { handle: normalizeHandle(encryptedTask.dueDate), contractAddress: this.contractAddress, field: 'dueDate' },
         { handle: normalizeHandle(encryptedTask.priority), contractAddress: this.contractAddress, field: 'priority' },
-      ].filter(pair => {
-        // Filter out null handles
-        if (pair.handle === null) return false;
-        // TEMPORARY WORKAROUND: Skip problematic handle that doesn't have ACL
-        if (pair.handle === problematicHandle) {
-          console.warn(`⚠️ Skipping ${pair.field} handle ${problematicHandle} - known ACL issue. This field will not be decrypted.`);
-          return false;
-        }
-        return true;
-      }) as Array<{ handle: string; contractAddress: string; field: string }>; // Type assertion after filtering nulls
+      ].filter(pair => pair.handle !== null) as Array<{ handle: string; contractAddress: string; field: string }>; // Filter out null handles
       
       if (handleContractPairs.length === 0) {
         throw new Error('No valid ciphertext handles found for decryption. Task may not be properly encrypted.');
@@ -1170,16 +1167,15 @@ class RealContractService {
       
       // Handle description - may be skipped if it has ACL issues
       let decryptedDescription = '';
-      if (descHandle && descHandle === problematicHandle) {
-        console.warn('⚠️ Description handle skipped due to ACL issue - will remain encrypted');
-        decryptedDescription = '******* ********'; // Keep as encrypted placeholder
-      } else if (descHandle && decryptResult[descHandle] !== undefined) {
+      if (descHandle && decryptResult[descHandle] !== undefined) {
         decryptedDescription = numberToString(decryptResult[descHandle]);
       }
       const decryptedDueDateNum = dueDateHandle && decryptResult[dueDateHandle] !== undefined
         ? (typeof decryptResult[dueDateHandle] === 'bigint' ? Number(decryptResult[dueDateHandle]) : Number(decryptResult[dueDateHandle]))
         : 0;
-      const decryptedDueDate = decryptedDueDateNum > 0 ? new Date(decryptedDueDateNum).toISOString() : '';
+      const decryptedDueDate = decryptedDueDateNum > 0 
+        ? new Date(decryptedDueDateNum < 1000000000000 ? decryptedDueDateNum * 1000 : decryptedDueDateNum).toISOString()
+        : '';
       const decryptedPriority = priorityHandle && decryptResult[priorityHandle] !== undefined
         ? (typeof decryptResult[priorityHandle] === 'bigint' ? Number(decryptResult[priorityHandle]) : Number(decryptResult[priorityHandle]))
         : 0;
@@ -1191,24 +1187,37 @@ class RealContractService {
         priority: decryptedPriority
       });
       
-      // For hash-based encryption, when decryption succeeds (hashes are verified),
-      // retrieve the original strings from localStorage instead of trying to reverse hashes
-      console.log('🔍 Hash verification successful - retrieving original data from localStorage...');
+      // When decryption succeeds, retrieve original plaintext from backend first, then localStorage
+      console.log('🔍 Hash verification successful - retrieving original data (backend first, then localStorage)...');
 
-      // Get original task data from localStorage - check both key formats for compatibility
       const normalizedAddress = ethers.getAddress(userAddress);
       const scopedKey = `userTaskData_${normalizedAddress}`;
       const legacyKey = 'userTaskData';
 
-      // Try scoped key first (new format), then legacy key (old format)
-      let storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
-      let originalTaskData = storedTasks[taskIndex];
+      let originalTaskData: any = null;
 
-      // If not found, try legacy key format
+      // Try backend first
+      try {
+        const { backendService } = await import('./backendService');
+        backendService.setUserAddress(normalizedAddress);
+        const backendTasks = await backendService.getTasks();
+        if (backendTasks && backendTasks[taskIndex]) {
+          originalTaskData = backendTasks[taskIndex];
+          console.log('✅ Retrieved original task data from BACKEND');
+        }
+      } catch (beErr) {
+        console.warn('⚠️ Backend retrieval failed, using localStorage fallback:', beErr);
+      }
+
+      // Fallback to localStorage if backend didn’t have it
       if (!originalTaskData) {
-        console.log('🔍 Trying legacy localStorage key format...');
-        storedTasks = JSON.parse(localStorage.getItem(legacyKey) || '{}');
+        let storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
         originalTaskData = storedTasks[taskIndex];
+        if (!originalTaskData) {
+          console.log('🔍 Trying legacy localStorage key format...');
+          storedTasks = JSON.parse(localStorage.getItem(legacyKey) || '{}');
+          originalTaskData = storedTasks[taskIndex];
+        }
       }
 
       if (!originalTaskData) {
@@ -1216,13 +1225,13 @@ class RealContractService {
         console.warn('⚠️ Checked keys:', scopedKey, 'and', legacyKey);
         // Instead of failing, return the decrypted values directly (even if they're hashes)
         // This allows decryption to succeed even if original data is missing
-        return {
-          success: true,
-          decryptedData: {
-            title: decryptedTitle,
-            description: decryptedDescription,
-            dueDate: decryptedDueDate,
-            priority: decryptedPriority,
+      return {
+        success: true,
+        decryptedData: {
+          title: decryptedTitle,
+          description: decryptedDescription,
+          dueDate: decryptedDueDate,
+          priority: decryptedPriority,
             note: '⚠️ Original strings not found - displaying hash values. Task was decrypted successfully.'
           }
         };
@@ -1287,7 +1296,7 @@ class RealContractService {
       
       // Call the contract's requestTaskDecryption function
       console.log('🔓 Calling contract.requestTaskDecryption (on-chain oracle)...');
-      const tx = await this.contract.requestTaskDecryption(taskIndex);
+      const tx = await this.contract.requestTaskDecryptionById(taskId);
       console.log('⏳ Decryption request transaction sent:', tx.hash);
       
       // Wait for transaction confirmation
@@ -1689,7 +1698,7 @@ class RealContractService {
         console.warn('⚠️ FHEVM not ready for shared task decryption, initializing...');
         await fhevmService.initialize();
       }
-
+      
       const signer = simpleWalletService.getSigner();
       if (!signer) {
         throw new Error('Wallet not connected. Please connect your wallet first.');
@@ -1697,16 +1706,18 @@ class RealContractService {
       
       console.log('✅ Wallet connected, proceeding with shared task decryption');
       
-      const taskIndex = taskId;
+      // Resolve the owner's current array index for this stable taskId
+      const taskIndexBn = await this.contract.getTaskIndex(originalOwner, taskId);
+      const taskIndex = Number(taskIndexBn);
       
       // Verify the contract method exists
-      if (!this.contract.requestSharedTaskDecryption) {
-        throw new Error('requestSharedTaskDecryption method not found on contract.');
+      if (!this.contract.requestSharedTaskDecryptionById) {
+        throw new Error('requestSharedTaskDecryptionById method not found on contract.');
       }
       
-      console.log('🔓 Calling requestSharedTaskDecryption with taskIndex:', taskIndex, 'originalOwner:', originalOwner);
+      console.log('🔓 Calling requestSharedTaskDecryptionById with taskId:', taskId, 'originalOwner:', originalOwner);
       
-      const tx = await this.contract.requestSharedTaskDecryption(taskIndex, originalOwner);
+      const tx = await this.contract.requestSharedTaskDecryptionById(taskId, originalOwner);
       console.log('⏳ Shared task decryption request transaction sent:', tx.hash);
       
       // Wait for transaction confirmation
@@ -1719,24 +1730,73 @@ class RealContractService {
       
       console.log('✅ Shared task decryption request confirmed');
       
-      // Get stored data for shared tasks (stored under sender's index)
-      const storedTasks = JSON.parse(localStorage.getItem('userTaskData') || '{}');
-      const storedTask = storedTasks[taskIndex];
+      // IMPORTANT: For shared task decryption in Zama FHEVM architecture:
+      // The blockchain emits TaskDecrypted event with encrypted numeric hashes
+      // The actual readable text MUST come from backend or localStorage
+      // This is the correct Zama pattern - blockchain stores encrypted, frontend stores readable text
+      
+      // Multi-source approach: Try backend first, then localStorage fallback
+      let storedTask = null;
+      
+      // Try 1: Backend (primary source - most reliable) - Get tasks from original owner
+      try {
+        const { backendService } = await import('./backendService');
+        // Get tasks for the original owner (sender), not current user
+        const ownerTasks = await backendService.getTasksForAddress(originalOwner);
+        if (ownerTasks) {
+          // Support both object and array shapes; prefer taskId match
+          const allOwnerTasks = Array.isArray(ownerTasks) ? ownerTasks : Object.values(ownerTasks);
+          storedTask = allOwnerTasks.find((t: any) => String(t.id) === String(taskId))
+                    || allOwnerTasks.find((t: any) => String(t.taskId) === String(taskId))
+                    || allOwnerTasks[taskIndex];
+          if (storedTask) console.log('✅ Found task data from backend (by taskId or index)');
+        }
+      } catch (backendError) {
+        console.warn('⚠️ Backend lookup failed, falling back to localStorage:', backendError);
+      }
+      
+      // Try 2: Sender's localStorage (fallback - do NOT check current user's localStorage for received tasks)
+      if (!storedTask) {
+        const senderKey = `userTaskData_${originalOwner}`;
+        const senderTasks = JSON.parse(localStorage.getItem(senderKey) || '{}');
+        // Prefer taskId key, fallback to index-like matches
+        storedTask = senderTasks[taskId] 
+          || Object.values(senderTasks).find((task: any) => task.id === taskId || task.numericId === taskId)
+          || senderTasks[taskIndex];
+        if (storedTask) {
+          console.log('✅ Found task data from sender localStorage');
+          console.log('🔍 Sender localStorage data:', storedTask);
+        }
+      }
       
       if (storedTask) {
-        console.log('✅ Found stored shared task data');
+        console.log('✅ Found stored shared task data from multi-source lookup');
+        console.log('🔍 Decrypted data being returned:', {
+          title: storedTask.title,
+          description: storedTask.description,
+          dueDate: storedTask.dueDate,
+          priority: storedTask.priority
+        });
+        const normalizeDue = (d: any) => {
+          if (!d) return '';
+          const n = typeof d === 'number' ? d : Date.parse(d);
+          if (isNaN(n)) return String(d);
+          const ms = n < 10000000000 ? n * 1000 : n; // seconds → ms
+          return new Date(ms).toISOString();
+        };
         return { 
           success: true, 
           decryptedData: { 
             title: storedTask.title,
             description: storedTask.description || 'No description',
-            dueDate: storedTask.dueDate,
-            priority: storedTask.priority,
+            dueDate: normalizeDue(storedTask.dueDate),
+            priority: typeof storedTask.priority === 'string' ? parseInt(storedTask.priority) : storedTask.priority,
             transactionHash: tx.hash
           } 
         };
       } else {
-        console.warn('⚠️ No stored data found for shared task');
+        console.warn('⚠️ No stored data found for shared task in any source');
+        console.warn('⚠️ Tried taskIndex:', taskIndex, 'originalOwner:', originalOwner);
         return { 
           success: true, // Still succeeded on blockchain
           decryptedData: { 
@@ -1773,7 +1833,7 @@ class RealContractService {
   // Helper method to indicate decrypted content (hash-based, actual text from backend)
   private numberToString(num: any): string {
     if (num === 0 || num === 0n || num === '0') return '';
-
+    
     // Since we're using hash-based encoding for FHEVM compatibility,
     // the actual string content should be retrieved from the backend
     // This hash serves as verification that decryption worked
@@ -1833,18 +1893,44 @@ class RealContractService {
         tasks = [];
       }
       
-      // Return raw blockchain data - TaskManager will handle all data merging and integrity checks
-      return tasks.map((task: any, index: number) => {
+      // Return blockchain data enriched with share info; TaskManager will merge with local storage
+      const enriched = await Promise.all(tasks.map(async (task: any, index: number) => {
+        // Resolve stable taskId for this index
+        let stableTaskId: number = index;
+        try {
+          const tid = await this.contract!.getTaskId(userAddress, index);
+          stableTaskId = Number(tid);
+        } catch {}
+        // Detect if shared by checking TaskShared logs AND get all recipients
+        let isShared = false;
+        let sharedWith: string[] = [];
+        try {
+          const logs = await this.contract!.queryFilter(this.contract!.filters.TaskShared(stableTaskId, userAddress, null), 0, 'latest');
+          isShared = logs.length > 0;
+          // Extract all recipient addresses from logs
+          sharedWith = logs.map((log: any) => {
+            try {
+              const parsed = this.contract!.interface.parseLog(log);
+              return parsed?.args?.recipient as string;
+            } catch {
+              return null;
+            }
+          }).filter((addr: string | null): addr is string => addr !== null);
+          console.log(`🔗 Task ${index} (stableId ${stableTaskId}) shared with ${sharedWith.length} recipients:`, sharedWith);
+        } catch (err) {
+          console.warn('⚠️ Failed to query TaskShared events:', err);
+        }
         console.log(`🔍 Task ${index} from blockchain:`, {
           rawStatus: task.status,
           statusType: typeof task.status,
           mappedStatus: this.mapTaskStatus(task.status),
           encryptedDueDate: task.dueDate,
           encryptedTitle: task.title,
-          encryptedPriority: task.priority
+          encryptedPriority: task.priority,
+          isShared,
+          sharedWith: sharedWith.length
         });
         
-        // Return minimal blockchain data - TaskManager will merge with localStorage
         return {
           id: index,
           title: '', // Empty - TaskManager will fill from localStorage
@@ -1854,9 +1940,12 @@ class RealContractService {
           status: this.mapTaskStatus(task.status), // Only status from blockchain
           createdAt: new Date().toISOString(), // Placeholder - TaskManager will use localStorage
           isEncrypted: true,
-          isShared: false
-        };
-      });
+          isShared: isShared,
+          sharedWith: sharedWith,
+          stableTaskId: stableTaskId,
+        } as any;
+      }));
+      return enriched;
     } catch (error) {
       console.error('Failed to get tasks:', error);
       throw new Error('Failed to get tasks');
@@ -1886,7 +1975,8 @@ class RealContractService {
       
       // Get transaction receipt for blockchain proof
       const receipt = await tx.wait(1);
-      const block = await this.contract?.provider?.getBlock(receipt.blockNumber);
+      const provider = (this.contract as any).provider as ethers.Provider | undefined;
+      const block = provider ? await provider.getBlock(receipt.blockNumber) : null;
       
       // Safely convert timestamp to ISO string
       let timestamp: string;
@@ -1990,9 +2080,9 @@ class RealContractService {
     }
   }
 
-  async deleteTask(taskIndex: number): Promise<void> {
+  async deleteTask(taskId: number): Promise<void> {
     if (this.isDemoMode) {
-      console.log('Demo mode: Deleting task', taskIndex);
+      console.log('Demo mode: Deleting task', taskId);
       return;
     }
 
@@ -2001,7 +2091,7 @@ class RealContractService {
     }
 
     try {
-      const tx = await this.contract.deleteTask(taskIndex);
+      const tx = await this.contract.deleteTaskById(taskId);
       
       // For deletion, we can be even more aggressive - just wait for transaction to be sent
       // and update UI immediately, then wait for confirmation in background
@@ -2021,9 +2111,9 @@ class RealContractService {
     }
   }
 
-  async shareTask(taskIndex: number, recipientAddress: string): Promise<void> {
+  async shareTask(taskId: number, recipientAddress: string): Promise<void> {
     if (this.isDemoMode) {
-      console.log('Demo mode: Sharing task', taskIndex, 'with', recipientAddress);
+      console.log('Demo mode: Sharing task', taskId, 'with', recipientAddress);
       return;
     }
 
@@ -2032,7 +2122,7 @@ class RealContractService {
     }
 
     try {
-      console.log('🔗 Sharing task', taskIndex, 'with recipient:', recipientAddress);
+      console.log('🔗 Sharing taskId', taskId, 'with recipient:', recipientAddress);
       
       // Validate recipient address
       if (!recipientAddress || !/^0x[a-fA-F0-9]{40}$/.test(recipientAddress)) {
@@ -2045,7 +2135,7 @@ class RealContractService {
       console.log('🔗 Normalized recipient address:', normalizedAddress, '(original:', recipientAddress, ')');
       
       // Call the contract's shareTask function with normalized address
-      const tx = await this.contract.shareTask(taskIndex, normalizedAddress);
+      const tx = await this.contract.shareTaskById(taskId, normalizedAddress);
       console.log('✅ Share transaction sent successfully! Hash:', tx.hash);
       console.log('⏳ Waiting for transaction confirmation (timeout: 30 seconds)...');
       
@@ -2068,9 +2158,9 @@ class RealContractService {
       }
       
       // Listen for TaskShared event to confirm
-      const filter = this.contract!.filters.TaskShared(taskIndex);
-      const listener = (taskIdx: number, owner: string, recipient: string) => {
-        console.log('🔗 TaskShared event received:', { taskIdx, owner, recipient });
+      const filter = this.contract!.filters.TaskShared(taskId);
+      const listener = (taskIdEv: number, owner: string, recipient: string) => {
+        console.log('🔗 TaskShared event received:', { taskId: taskIdEv, owner, recipient });
         this.contract!.off(filter, listener);
       };
       

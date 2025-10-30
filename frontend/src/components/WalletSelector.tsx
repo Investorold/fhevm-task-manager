@@ -55,11 +55,13 @@ export function WalletSelector({ onWalletSelect, isConnecting }: WalletSelectorP
     }
 
     // Nightly Wallet
-    if (window.nightly) {
+    // @ts-ignore - nightly wallet type not defined
+    if ((window as any).nightly) {
       wallets.push({
         name: 'Nightly Wallet',
         icon: '🌙',
-        provider: window.nightly,
+        // @ts-ignore - nightly wallet type not defined
+        provider: (window as any).nightly,
         isInstalled: true
       });
     }
