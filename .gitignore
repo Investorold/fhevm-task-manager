@@ -45,7 +45,12 @@ private-keys/
 /contracts/node_modules
 /contracts/fhevmTemp
 
-# JavaScript files in root (these are your personal projects)
+# Temporary files
+*.tmp
+.temp/
+*.backup
+
+# Personal directories (remove these after cleaning)
 Area/
 CSC 207/
 Csc207/
@@ -53,10 +58,17 @@ untitled/
 untitled1/
 untitled2/
 
-# Temporary files
-*.tmp
-.temp/
-
 # Hardhat files (sensitive contract data)
 cache/
 artifacts/
+
+# Vercel
+.vercel
+
+# IDE
+*.code-workspace
+
+# Build artifacts
+frontend/dist
+contracts/deployments/localhost
+contracts/lib

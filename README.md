@@ -2,6 +2,11 @@
 
 A confidential task management dApp built with Zama FHEVM, leveraging fully homomorphic encryption to protect user data on-chain.
 
+> **🎯 Zama Developer Program Submission**  
+> Live Demo: [https://fhevm-task-manager.vercel.app/](https://fhevm-task-manager.vercel.app/)  
+> Contract: `0xe8602589175597668f7dE429422FED0A3B955cD9` on Sepolia  
+> [View on Etherscan](https://sepolia.etherscan.io/address/0xe8602589175597668f7dE429422FED0A3B955cD9)
+
 ## 🎯 Features
 
 - **Encrypted Task Management**: Create, decrypt, complete, and delete tasks with full confidentiality
@@ -72,23 +77,6 @@ npm run dev
    - Toggle "Encrypt Task" ON
    - Fill in details and create
 
-## 📁 Project Structure
-
-```
-fhevm-task-manager/
-├── contracts/          # Smart contracts
-│   ├── contracts/      # Solidity files
-│   ├── deployments/    # Deployment configs
-│   └── test/           # Contract tests
-├── frontend/          # React + TypeScript frontend
-│   ├── src/
-│   │   ├── components/  # UI components
-│   │   ├── services/    # FHEVM & blockchain services
-│   │   └── types/       # TypeScript definitions
-│   └── public/
-└── README.md
-```
-
 ## 🔐 Contract Addresses
 
 ### Sepolia Testnet (Verified)
@@ -96,64 +84,41 @@ fhevm-task-manager/
 - **Etherscan**: https://sepolia.etherscan.io/address/0xe8602589175597668f7dE429422FED0A3B955cD9
 - **Features**: Stable task IDs, owner-aware sharing, completed task protection
 
-## 🌐 Live Demo
+## 📋 Project Structure
 
-### Vercel Deployment
-**Status**: ✅ Deployed and Live!
+```
+fhevm-task-manager/
+├── contracts/          # Smart contracts & deployment
+│   ├── contracts/      # Solidity files
+│   ├── scripts/        # Deployment scripts
+│   ├── test/           # Contract tests
+│   └── deployments/    # Deployment configs
+├── frontend/          # React + TypeScript + Tailwind
+│   ├── src/
+│   │   ├── components/  # UI components
+│   │   ├── services/    # FHEVM & blockchain services
+│   │   └── config/      # Contract configuration
+│   ├── public/         # Static assets
+│   └── vercel.json     # Vercel deployment config
+├── backend/           # Optional backend service
+├── README.md          # Main documentation
+├── DEPLOYMENT_GUIDE.md # Deployment instructions
+└── vercel.json        # Root Vercel config
+```
 
-**Live URL**: **[https://fhevm-task-manager.vercel.app/](https://fhevm-task-manager.vercel.app/)**
+## 🧪 Testing
 
-🚀 **Try it now!** Click the link above to test the app in your browser. Connect your MetaMask wallet on Sepolia testnet to create encrypted tasks.
+### Run Contract Tests
+```bash
+cd contracts
+npm test
+```
 
-#### Deploy to Vercel
-
-1. **Install Vercel CLI**:
-   ```bash
-   npm i -g vercel
-   ```
-
-2. **Navigate to frontend directory**:
-   ```bash
-   cd frontend
-   ```
-
-3. **Deploy**:
-   ```bash
-   vercel
-   ```
-
-4. **Follow prompts**:
-   - Link to existing project or create new
-   - Set root directory: `frontend`
-   - Build command: `npm run build`
-   - Output directory: `dist`
-   - Install command: `npm install`
-
-5. **Environment Variables** (if needed):
-   - No environment variables required - all config is in `src/config/contract.ts`
-
-#### Or Deploy via Vercel Dashboard
-
-1. Go to [vercel.com](https://vercel.com)
-2. Import your Git repository
-3. Set:
-   - **Framework Preset**: Vite
-   - **Root Directory**: `frontend`
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-4. Deploy
-
-#### Post-Deployment
-
-After deployment, verify cross-origin isolation:
-1. Open browser DevTools (F12)
-2. Check Console for errors
-3. Run: `console.log(self.crossOriginIsolated)` - should be `true`
-4. Check Network tab - responses should have:
-   - `Cross-Origin-Opener-Policy: same-origin`
-   - `Cross-Origin-Embedder-Policy: require-corp`
-
-The `vercel.json` file automatically configures these headers.
+### Run Frontend Locally
+```bash
+cd frontend
+npm run dev
+```
 
 ## 🛠️ Troubleshooting
 
