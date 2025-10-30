@@ -199,3 +199,8 @@ If you encounter issues or need help:
 ---
 
 **Built with ❤️ for the Zama Developer Program**
+
+---
+
+**Status**: Deployed and ready for Zama submission  
+**Last Updated**: October 30, 2025
