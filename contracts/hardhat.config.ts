@@ -81,7 +81,7 @@ const config: HardhatUserConfig = {
         count: 10,
       },
       chainId: 11155111,
-      url: "https://sepolia.drpc.org",
+      url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
       fhevm: {
         relayerUrl: "https://relayer.testnet.zama.cloud",
         aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c",

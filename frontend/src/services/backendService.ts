@@ -1,5 +1,22 @@
 // Backend API service for persistent task storage
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
+// In Vite, process.env is not defined in the browser. Use import.meta.env instead.
+import { simpleWalletService } from './simpleWalletService';
+
+const DEFAULT_BACKEND_URL = (() => {
+  try {
+    const host = window.location?.hostname || 'localhost';
+    return `http://${host}:3001`;
+  } catch {
+    return 'http://localhost:3001';
+  }
+})();
+
+// Prefer Vite env var if provided, otherwise fall back to same-host :3001
+// Define VITE_BACKEND_URL in a .env file if you want a custom URL
+// Example: VITE_BACKEND_URL=https://api.example.com
+const BACKEND_URL =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_BACKEND_URL) ||
+  DEFAULT_BACKEND_URL;
 
 class BackendService {
   private userAddress: string | null = null;
@@ -9,10 +26,23 @@ class BackendService {
   }
 
   getUserAddress(): string {
-    if (!this.userAddress) {
-      throw new Error('User address not set');
+    // If address is already set, use it
+    if (this.userAddress) {
+      return this.userAddress;
     }
-    return this.userAddress;
+    
+    // Otherwise, try to get it from simpleWalletService
+    try {
+      const address = simpleWalletService.getAddress();
+      if (address) {
+        this.userAddress = address;
+        return address;
+      }
+    } catch (error) {
+      // If simpleWalletService is not available or wallet not connected, continue to throw error
+    }
+    
+    throw new Error('User address not set');
   }
 
   async getTasks(): Promise<Record<string, any>> {
@@ -27,6 +57,21 @@ class BackendService {
       return await response.json();
     } catch (error) {
       console.error('Failed to fetch tasks from backend:', error);
+      return {};
+    }
+  }
+
+  async getTasksForAddress(address: string): Promise<Record<string, any>> {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/tasks/${address}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch tasks for address: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error(`Failed to fetch tasks from backend for address ${address}:`, error);
       return {};
     }
   }

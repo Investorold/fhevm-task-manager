@@ -26,21 +26,28 @@ contract TaskManager is SepoliaConfig, Ownable {
         TaskStatus status;
     }
 
-    // Mapping from a user's address to their list of tasks
+    // Mapping from a user's address to their list of tasks (array kept for storage)
     mapping(address => Task[]) public tasks;
+    // Stable task IDs
+    uint256 private _nextTaskId;
+    // owner => index => taskId
+    mapping(address => mapping(uint256 => uint256)) public indexToTaskId;
+    // owner => taskId => index
+    mapping(address => mapping(uint256 => uint256)) public taskIdToIndex;
 
     mapping(address => uint32) public lastDueSoonCount;
     mapping(uint256 => address) public requestInitiator;
 
     // NEW: Track shared tasks
-    mapping(address => uint256[]) public sharedTasks; // recipient => task indices
-    mapping(uint256 => address) public taskOwners; // task index => original owner
-    mapping(address => mapping(uint256 => bool)) public isTaskSharedWith; // recipient => task index => is shared
+    mapping(address => uint256[]) public sharedTasks; // recipient => task indices (index-only list; owner must be specified separately)
+    // Owner-aware sharing guard: recipient => owner => taskIndex => is shared
+    mapping(address => mapping(address => mapping(uint256 => bool))) public isTaskSharedWith;
 
     uint256 public taskCreationFee = 0.0001 ether;
 
         event DecryptionRequested(uint256 requestId, address indexed initiator);
-        event TaskShared(uint256 indexed taskIndex, address indexed owner, address indexed recipient);
+        event TaskCreated(address indexed owner, uint256 indexed taskId);
+        event TaskShared(uint256 indexed taskId, address indexed owner, address indexed recipient);
         event Debug(string message, uint256 value);
 
     
@@ -141,28 +148,29 @@ contract TaskManager is SepoliaConfig, Ownable {
             });
 
             tasks[msg.sender].push(newTask);
+            uint256 newId = ++_nextTaskId;
+            uint256 newIndex = tasks[msg.sender].length - 1;
+            indexToTaskId[msg.sender][newIndex] = newId;
+            taskIdToIndex[msg.sender][newId] = newIndex;
+            emit TaskCreated(msg.sender, newId);
 
             emit Debug("Task pushed", 5);
 
     
 
-            // 3. Grant permissions for the user to decrypt their own task details
+            // 3. Grant permissions for the user to decrypt their own task details (use stored task handles)
+            Task storage storedTaskCreate = tasks[msg.sender][tasks[msg.sender].length - 1];
 
-            FHE.allow(title, msg.sender);
-
-            FHE.allow(dueDate, msg.sender);
-
-            FHE.allow(priority, msg.sender);
-
-            
+            FHE.allow(storedTaskCreate.title, msg.sender);
+            FHE.allow(storedTaskCreate.dueDate, msg.sender);
+            FHE.allow(storedTaskCreate.priority, msg.sender);
+            FHE.allow(storedTaskCreate.description, msg.sender);
 
             // 4. Grant contract permission to read the values for future operations
-
-            FHE.allowThis(title);
-
-            FHE.allowThis(dueDate);
-
-            FHE.allowThis(priority);
+            FHE.allowThis(storedTaskCreate.title);
+            FHE.allowThis(storedTaskCreate.dueDate);
+            FHE.allowThis(storedTaskCreate.priority);
+            FHE.allowThis(storedTaskCreate.description);
 
             emit Debug("Permissions granted", 6);
 
@@ -207,6 +215,13 @@ contract TaskManager is SepoliaConfig, Ownable {
             status: TaskStatus.Pending
         });
         tasks[msg.sender].push(newTask);
+        {
+            uint256 newId = ++_nextTaskId;
+            uint256 newIndex = tasks[msg.sender].length - 1;
+            indexToTaskId[msg.sender][newIndex] = newId;
+            taskIdToIndex[msg.sender][newId] = newIndex;
+            emit TaskCreated(msg.sender, newId);
+        }
         emit Debug("Task pushed", 6);
 
         // CRITICAL: Grant permissions AFTER storing the task
@@ -266,17 +281,27 @@ contract TaskManager is SepoliaConfig, Ownable {
             status: TaskStatus.Pending
         });
         tasks[msg.sender].push(newTask);
+        {
+            uint256 newId = ++_nextTaskId;
+            uint256 newIndex = tasks[msg.sender].length - 1;
+            indexToTaskId[msg.sender][newIndex] = newId;
+            taskIdToIndex[msg.sender][newId] = newIndex;
+            emit TaskCreated(msg.sender, newId);
+        }
         emit Debug("Task pushed", 6);
 
-        // Grant permissions
-        FHE.allow(title, msg.sender);
-        FHE.allow(dueDate, msg.sender);
-        FHE.allow(priority, msg.sender);
-        FHE.allow(numericId, msg.sender);
-        FHE.allowThis(title);
-        FHE.allowThis(dueDate);
-        FHE.allowThis(priority);
-        FHE.allowThis(numericId);
+        // Grant permissions using stored task handles
+        Task storage storedTaskNumbers = tasks[msg.sender][tasks[msg.sender].length - 1];
+        FHE.allow(storedTaskNumbers.title, msg.sender);
+        FHE.allow(storedTaskNumbers.dueDate, msg.sender);
+        FHE.allow(storedTaskNumbers.priority, msg.sender);
+        FHE.allow(storedTaskNumbers.numericId, msg.sender);
+        FHE.allow(storedTaskNumbers.description, msg.sender);
+        FHE.allowThis(storedTaskNumbers.title);
+        FHE.allowThis(storedTaskNumbers.dueDate);
+        FHE.allowThis(storedTaskNumbers.priority);
+        FHE.allowThis(storedTaskNumbers.numericId);
+        FHE.allowThis(storedTaskNumbers.description);
         emit Debug("Permissions granted", 7);
     }
 
@@ -284,15 +309,37 @@ contract TaskManager is SepoliaConfig, Ownable {
         return tasks[user];
     }
 
+    // Helper: get taskId by owner + index
+    function getTaskId(address owner_, uint256 index) external view returns (uint256) {
+        return indexToTaskId[owner_][index];
+    }
+
+    // Helper: get current index for a given owner + taskId
+    function getTaskIndex(address owner_, uint256 taskId) external view returns (uint256) {
+        return taskIdToIndex[owner_][taskId];
+    }
+
     function completeTask(uint256 taskIndex) public {
         require(taskIndex < tasks[msg.sender].length, "Task index out of bounds");
         tasks[msg.sender][taskIndex].status = TaskStatus.Completed;
     }
 
-    function deleteTask(uint256 taskIndex) public {
-        require(taskIndex < tasks[msg.sender].length, "Task index out of bounds");
-        tasks[msg.sender][taskIndex] = tasks[msg.sender][tasks[msg.sender].length - 1];
+    // New: delete by stable taskId (updates index mappings to avoid broken references)
+    function deleteTaskById(uint256 taskId) public {
+        uint256 idx = taskIdToIndex[msg.sender][taskId];
+        require(idx < tasks[msg.sender].length, "Task does not exist");
+        uint256 lastIdx = tasks[msg.sender].length - 1;
+        if (idx != lastIdx) {
+            // Move last to idx
+            tasks[msg.sender][idx] = tasks[msg.sender][lastIdx];
+            uint256 movedId = indexToTaskId[msg.sender][lastIdx];
+            indexToTaskId[msg.sender][idx] = movedId;
+            taskIdToIndex[msg.sender][movedId] = idx;
+        }
+        // Clean last
         tasks[msg.sender].pop();
+        delete indexToTaskId[msg.sender][lastIdx];
+        delete taskIdToIndex[msg.sender][taskId];
     }
 
     function editTask(
@@ -323,31 +370,39 @@ contract TaskManager is SepoliaConfig, Ownable {
         FHE.allowThis(newPriority);
     }
 
-    function shareTask(uint256 taskIndex, address recipient) public {
-        require(taskIndex < tasks[msg.sender].length, "Task index out of bounds");
+    function shareTaskById(uint256 taskId, address recipient) public {
+        uint256 taskIndex = taskIdToIndex[msg.sender][taskId];
+        require(taskIndex < tasks[msg.sender].length, "Task does not exist");
 
         Task storage task = tasks[msg.sender][taskIndex];
+        require(task.status == TaskStatus.Pending, "Task already completed");
 
-        // Grant decryption permission to the recipient for the core fields only
-        // (title, dueDate, priority are the main fields used in tests)
+        // Grant decryption permission to the recipient for the core fields
         FHE.allow(task.title, recipient);
+        FHE.allow(task.description, recipient);
         FHE.allow(task.dueDate, recipient);
         FHE.allow(task.priority, recipient);
 
         // Track the shared task
-        if (!isTaskSharedWith[recipient][taskIndex]) {
-            sharedTasks[recipient].push(taskIndex);
-            taskOwners[taskIndex] = msg.sender;
-            isTaskSharedWith[recipient][taskIndex] = true;
+        if (!isTaskSharedWith[recipient][msg.sender][taskId]) {
+            sharedTasks[recipient].push(taskId);
+            isTaskSharedWith[recipient][msg.sender][taskId] = true;
         }
 
         // Emit event for frontend to listen
-        emit TaskShared(taskIndex, msg.sender, recipient);
+        emit TaskShared(taskId, msg.sender, recipient);
     }
 
-    // Function to get all shared task indices for a recipient
+    // Function to get all shared task IDs for a recipient
     function getSharedTasks(address recipient) public view returns (uint256[] memory) {
         return sharedTasks[recipient];
+    }
+
+    // Backward-compat: share by index (maps to stable taskId)
+    function shareTask(uint256 taskIndex, address recipient) public {
+        require(taskIndex < tasks[msg.sender].length, "Task index out of bounds");
+        uint256 taskId = indexToTaskId[msg.sender][taskIndex];
+        shareTaskById(taskId, recipient);
     }
 
     function requestTasksDueSoonCount(externalEuint64 encryptedTimeMargin, bytes calldata inputProof) public {
@@ -371,11 +426,12 @@ contract TaskManager is SepoliaConfig, Ownable {
         emit DecryptionRequested(requestId, msg.sender);
     }
 
-    function callbackCount(uint256 requestId, bytes memory cleartexts, bytes memory decryptionProof) public {
-        // Verify the request was initiated by the caller
-        require(requestInitiator[requestId] == msg.sender, "Unauthorized decryption request");
-        
-        // Verify the decryption proof
+    function callbackCount(
+        uint256 requestId,
+        bytes memory cleartexts,
+        bytes memory decryptionProof
+    ) external {
+        // Verify signatures from KMS relayer
         FHE.checkSignatures(requestId, cleartexts, decryptionProof);
 
         address initiator = requestInitiator[requestId];
@@ -383,26 +439,27 @@ contract TaskManager is SepoliaConfig, Ownable {
 
         (uint32 count) = abi.decode(cleartexts, (uint32));
         lastDueSoonCount[initiator] = count;
-
         delete requestInitiator[requestId];
     }
 
     /**
-     * @dev Requests decryption of a specific task for the caller.
+     * @dev Requests decryption of a specific task for the caller (by stable taskId).
      * This function initiates the decryption process for FHEVM encrypted data.
-     * @param taskIndex The index of the task to decrypt
+     * @param taskId The stable task identifier
      */
-    function requestTaskDecryption(uint256 taskIndex) external {
+    function requestTaskDecryptionById(uint256 taskId) external {
+        uint256 taskIndex = taskIdToIndex[msg.sender][taskId];
         require(taskIndex < tasks[msg.sender].length, "Task does not exist");
         
         // Get the task
         Task storage task = tasks[msg.sender][taskIndex];
         
-        // Create array of ciphertexts to decrypt
-        bytes32[] memory ciphertexts = new bytes32[](3);
+        // Create array of ciphertexts to decrypt (include description as 4th item)
+        bytes32[] memory ciphertexts = new bytes32[](4);
         ciphertexts[0] = FHE.toBytes32(task.title);
         ciphertexts[1] = FHE.toBytes32(task.dueDate);
         ciphertexts[2] = FHE.toBytes32(task.priority);
+        ciphertexts[3] = FHE.toBytes32(task.description);
         
         // Request decryption
         uint256 requestId = FHE.requestDecryption(ciphertexts, this.taskDecryptionCallback.selector);
@@ -413,27 +470,36 @@ contract TaskManager is SepoliaConfig, Ownable {
         emit DecryptionRequested(requestId, msg.sender);
     }
 
+    // Backward-compat: request decrypt by legacy index
+    function requestTaskDecryption(uint256 taskIndex) external {
+        require(taskIndex < tasks[msg.sender].length, "Task does not exist");
+        uint256 taskId = indexToTaskId[msg.sender][taskIndex];
+        this.requestTaskDecryptionById(taskId);
+    }
+
     /**
-     * @dev Requests decryption of a shared task (for recipients).
+     * @dev Requests decryption of a shared task (for recipients) using stable taskId.
      * This allows users to decrypt tasks that were shared with them.
-     * @param taskIndex The index of the task in the original owner's tasks array
+     * @param taskId The stable task identifier
      * @param originalOwner The address of the task's original owner
      */
-    function requestSharedTaskDecryption(uint256 taskIndex, address originalOwner) external {
+    function requestSharedTaskDecryptionById(uint256 taskId, address originalOwner) external {
         // Check if this task was shared with the caller
-        require(isTaskSharedWith[msg.sender][taskIndex], "Task is not shared with you");
+        require(isTaskSharedWith[msg.sender][originalOwner][taskId], "Task is not shared with you");
         
-        // Verify the original owner has this task
+        // Resolve owner's index
+        uint256 taskIndex = taskIdToIndex[originalOwner][taskId];
         require(taskIndex < tasks[originalOwner].length, "Task does not exist for owner");
         
         // Get the task from the original owner
         Task storage task = tasks[originalOwner][taskIndex];
         
-        // Create array of ciphertexts to decrypt
-        bytes32[] memory ciphertexts = new bytes32[](3);
+        // Create array of ciphertexts to decrypt (include description as 4th item)
+        bytes32[] memory ciphertexts = new bytes32[](4);
         ciphertexts[0] = FHE.toBytes32(task.title);
         ciphertexts[1] = FHE.toBytes32(task.dueDate);
         ciphertexts[2] = FHE.toBytes32(task.priority);
+        ciphertexts[3] = FHE.toBytes32(task.description);
         
         // Request decryption
         uint256 requestId = FHE.requestDecryption(ciphertexts, this.taskDecryptionCallback.selector);
@@ -442,6 +508,13 @@ contract TaskManager is SepoliaConfig, Ownable {
         requestInitiator[requestId] = msg.sender;
         
         emit DecryptionRequested(requestId, msg.sender);
+    }
+
+    // Backward-compat: shared decrypt by legacy index
+    function requestSharedTaskDecryption(uint256 taskIndex, address originalOwner) external {
+        require(taskIndex < tasks[originalOwner].length, "Task does not exist for owner");
+        uint256 taskId = indexToTaskId[originalOwner][taskIndex];
+        this.requestSharedTaskDecryptionById(taskId, originalOwner);
     }
 
     /**
@@ -456,18 +529,18 @@ contract TaskManager is SepoliaConfig, Ownable {
         bytes memory cleartexts,
         bytes memory decryptionProof
     ) external {
-        // Verify the request was initiated by the caller
-        require(requestInitiator[requestId] == msg.sender, "Unauthorized decryption request");
-        
         // Verify the decryption proof
         FHE.checkSignatures(requestId, cleartexts, decryptionProof);
-        
-        // Decode the decrypted data
-        (uint64 decryptedTitle, uint64 decryptedDueDate, uint8 decryptedPriority) = 
-            abi.decode(cleartexts, (uint64, uint64, uint8));
-        
+
+        address initiator = requestInitiator[requestId];
+        require(initiator != address(0), "Request ID not found or already processed");
+
+        // Decode the decrypted data (now includes description as 4th item)
+        (uint64 decryptedTitle, uint64 decryptedDueDate, uint8 decryptedPriority, uint64 _decryptedDescription) = 
+            abi.decode(cleartexts, (uint64, uint64, uint8, uint64));
+
         // Emit event with decrypted data (for frontend to listen)
-        emit TaskDecrypted(requestId, msg.sender, decryptedTitle, decryptedDueDate, decryptedPriority);
+        emit TaskDecrypted(requestId, initiator, decryptedTitle, decryptedDueDate, decryptedPriority);
         
         // Clean up the request
         delete requestInitiator[requestId];

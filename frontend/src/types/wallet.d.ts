@@ -26,6 +26,8 @@ declare global {
       isMathWallet?: boolean;
       // SafePal Wallet
       isSafePal?: boolean;
+      // Zerion Wallet
+      isZerion?: boolean;
       
       // Common methods
       request: (args: { method: string; params?: any[] }) => Promise<any>;
@@ -62,6 +64,11 @@ declare global {
     
     // Legacy Trust Wallet
     trustwallet?: {
+      request: (args: { method: string; params?: any[] }) => Promise<any>;
+    };
+    
+    // Zerion Wallet
+    zerionWallet?: {
       request: (args: { method: string; params?: any[] }) => Promise<any>;
     };
   }

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Shield } from 'lucide-react';
 import { ProductionWalletConnect } from './components/ProductionWalletConnect';
 import { TaskManager } from './components/TaskManager';
 import { Header } from './components/Header';
@@ -9,15 +8,16 @@ import { realContractService } from './services/realContractService';
 import { simpleWalletService } from './services/simpleWalletService';
 import { fhevmService } from './services/fhevmService';
 import { getContractAddress } from './config/contract';
-import type { WalletState } from './types';
 
 function App() {
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
-  const [isInitializing, setIsInitializing] = useState(false);
+  const [isInitializing] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  // UI filter: All Tasks vs Encrypted Only
+  const [encryptedOnly, setEncryptedOnly] = useState(false);
   // Real deployed contract address from config
-  const [contractAddress, setContractAddress] = useState(getContractAddress());
+  const contractAddress = getContractAddress();
 
   useEffect(() => {
     // Try to restore persisted wallet connection on page load
@@ -117,9 +117,13 @@ function App() {
     setWalletAddress('');
   };
 
+  const handleToggleEncryptedOnly = () => {
+    setEncryptedOnly(prev => !prev);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex flex-col">
-      <Header onDisconnect={handleDisconnect} />
+      <Header onDisconnect={handleDisconnect} encryptedOnly={encryptedOnly} onToggleEncryptedOnly={handleToggleEncryptedOnly} showEncryptedToggle={walletConnected && !isDemoMode} />
       
       <main className="container mx-auto px-4 py-8 flex-1">
         {!walletConnected && !isDemoMode ? (
@@ -131,7 +135,7 @@ function App() {
 
             {/* Task Manager */}
             {(walletConnected || isDemoMode) && (
-              <TaskManager externalDemoMode={isDemoMode} />
+              <TaskManager externalDemoMode={isDemoMode} encryptedOnly={encryptedOnly} />
             )}
 
             {/* Loading State */}

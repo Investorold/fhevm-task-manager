@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const { ethers } = require('ethers');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -30,6 +31,39 @@ const writeTasks = () => {
 
 // Initialize on startup
 readTasks();
+
+// Optional: require signed requests for API access (set REQUIRE_SIGNATURE=true)
+const REQUIRE_SIGNATURE = process.env.REQUIRE_SIGNATURE === 'true';
+
+const verifySignatureMiddleware = (req, res, next) => {
+  if (!REQUIRE_SIGNATURE) return next();
+  // Allow health without signature
+  if (req.path === '/health') return next();
+
+  try {
+    const addr = (req.headers['x-wallet-address'] || '').toString();
+    const sig = (req.headers['x-signature'] || '').toString();
+    const msg = (req.headers['x-message'] || '').toString();
+
+    if (!addr || !sig || !msg) {
+      return res.status(401).json({ error: 'Signature required' });
+    }
+
+    const recovered = ethers.verifyMessage(msg, sig);
+    if (recovered.toLowerCase() !== addr.toLowerCase()) {
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+
+    // Attach verified address to request
+    req.verifiedAddress = recovered;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Signature verification failed' });
+  }
+};
+
+// Apply signature verification to all API routes
+app.use('/api', verifySignatureMiddleware);
 
 // Health check
 app.get('/health', (req, res) => {

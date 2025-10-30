@@ -13,10 +13,25 @@ export function ProductionWalletConnect() {
   const [availableWallets, setAvailableWallets] = useState<WalletProvider[]>([]);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedWallet, setSelectedWallet] = useState<WalletProvider | null>(null);
 
   useEffect(() => {
     detectWallets();
   }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isOpen && !(event.target as Element).closest('.relative')) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [isOpen]);
 
   const detectWallets = () => {
     const wallets: WalletProvider[] = [];
@@ -161,6 +176,23 @@ export function ProductionWalletConnect() {
       });
     }
 
+    // Zerion Wallet
+    if (window.ethereum?.isZerion) {
+      wallets.push({
+        name: 'Zerion',
+        provider: window.ethereum,
+        icon: '💎',
+        isInstalled: true
+      });
+    } else if (window.zerionWallet) {
+      wallets.push({
+        name: 'Zerion',
+        provider: window.zerionWallet,
+        icon: '💎',
+        isInstalled: true
+      });
+    }
+
     // EVM Ask
     if (window.evmAsk) {
       wallets.push({
@@ -184,78 +216,95 @@ export function ProductionWalletConnect() {
     setAvailableWallets(wallets);
   };
 
+  const handleWalletSelect = (wallet: WalletProvider) => {
+    setSelectedWallet(wallet);
+    setIsOpen(false);
+  };
+
   const handleConnectWallet = async () => {
     setIsConnecting(true);
     
     try {
       console.log('🔧 Connecting wallet...');
       
-      // Universal wallet detection - works with ANY EVM wallet
+      // Use selected wallet if available, otherwise use universal detection
       let provider = null;
       let walletName = 'Unknown Wallet';
-      
-      // Handle provider conflicts by using a stable reference
-      const getStableProvider = () => {
-        console.log('🔧 Detecting wallet providers...');
-        console.log('🔧 window.ethereum:', !!window.ethereum);
-        console.log('🔧 window.ethereum.providers:', window.ethereum?.providers?.length || 'none');
-        console.log('🔧 window.evmAsk:', !!window.evmAsk);
+
+      // If a wallet is selected, use it
+      if (selectedWallet) {
+        console.log('🔧 Using selected wallet:', selectedWallet.name);
+        provider = selectedWallet.provider;
+        walletName = selectedWallet.name;
+      } else if (availableWallets.length > 0) {
+        // Use the first available wallet if none selected
+        console.log('🔧 Using first available wallet:', availableWallets[0].name);
+        provider = availableWallets[0].provider;
+        walletName = availableWallets[0].name;
+      } else {
+        // Fallback to universal detection - Handle provider conflicts by using a stable reference
+        const getStableProvider = () => {
+          console.log('🔧 Detecting wallet providers...');
+          console.log('🔧 window.ethereum:', !!window.ethereum);
+          console.log('🔧 window.ethereum.providers:', window.ethereum?.providers?.length || 'none');
+          console.log('🔧 window.evmAsk:', !!window.evmAsk);
+          
+          // If we already have a selected provider, use it
+          if ((window as any).__selectedProvider) {
+            console.log('🔧 Using cached provider');
+            return (window as any).__selectedProvider;
+          }
+          
+          // Check for multiple wallet providers
+          if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+            console.log('🔧 Multiple wallets detected:', window.ethereum.providers.length);
+            
+            // Try to find MetaMask first, but use any available
+            const selectedProvider = window.ethereum.providers.find((p: any) => p.isMetaMask) || window.ethereum.providers[0];
+            
+            console.log('🔧 Selected provider from array:', selectedProvider?.isMetaMask ? 'MetaMask' : 'Other');
+            
+            // Store it globally to prevent conflicts
+            (window as any).__selectedProvider = selectedProvider;
+            return selectedProvider;
+          } 
+          // Single wallet provider
+          else if (window.ethereum) {
+            console.log('🔧 Single wallet detected');
+            
+            // Store it globally to prevent conflicts
+            (window as any).__selectedProvider = window.ethereum;
+            return window.ethereum;
+          }
+          // Check for specific wallets
+          else if (window.evmAsk) {
+            console.log('🔧 EVM Ask detected');
+            
+            // Store it globally to prevent conflicts
+            (window as any).__selectedProvider = window.evmAsk;
+            return window.evmAsk;
+          }
+          
+          console.log('🔧 No wallet provider found');
+          return null;
+        };
         
-        // If we already have a selected provider, use it
-        if ((window as any).__selectedProvider) {
-          console.log('🔧 Using cached provider');
-          return (window as any).__selectedProvider;
+        provider = getStableProvider();
+        
+        if (!provider) {
+          throw new Error('No EVM wallet found! Please install MetaMask, Trust Wallet, Coinbase Wallet, or any EVM-compatible wallet.');
         }
         
-        // Check for multiple wallet providers
-        if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
-          console.log('🔧 Multiple wallets detected:', window.ethereum.providers.length);
-          
-          // Try to find MetaMask first, but use any available
-          const selectedProvider = window.ethereum.providers.find((p: any) => p.isMetaMask) || window.ethereum.providers[0];
-          
-          console.log('🔧 Selected provider from array:', selectedProvider?.isMetaMask ? 'MetaMask' : 'Other');
-          
-          // Store it globally to prevent conflicts
-          (window as any).__selectedProvider = selectedProvider;
-          return selectedProvider;
-        } 
-        // Single wallet provider
-        else if (window.ethereum) {
-          console.log('🔧 Single wallet detected');
-          
-          // Store it globally to prevent conflicts
-          (window as any).__selectedProvider = window.ethereum;
-          return window.ethereum;
-        }
-        // Check for specific wallets
-        else if (window.evmAsk) {
-          console.log('🔧 EVM Ask detected');
-          
-          // Store it globally to prevent conflicts
-          (window as any).__selectedProvider = window.evmAsk;
-          return window.evmAsk;
-        }
+        // Determine wallet name
+        if (provider.isMetaMask) walletName = 'MetaMask';
+        else if (provider.isCoinbaseWallet) walletName = 'Coinbase Wallet';
+        else if (provider.isTrust) walletName = 'Trust Wallet';
+        else if (provider.isRabby) walletName = 'Rabby';
+        else if (provider === window.evmAsk) walletName = 'EVM Ask';
+        else walletName = 'EVM Wallet';
         
-        console.log('🔧 No wallet provider found');
-        return null;
-      };
-      
-      provider = getStableProvider();
-      
-      if (!provider) {
-        throw new Error('No EVM wallet found! Please install MetaMask, Trust Wallet, Coinbase Wallet, or any EVM-compatible wallet.');
+        console.log(`🔧 Using: ${walletName}`);
       }
-      
-      // Determine wallet name
-      if (provider.isMetaMask) walletName = 'MetaMask';
-      else if (provider.isCoinbaseWallet) walletName = 'Coinbase Wallet';
-      else if (provider.isTrust) walletName = 'Trust Wallet';
-      else if (provider.isRabby) walletName = 'Rabby';
-      else if (provider === window.evmAsk) walletName = 'EVM Ask';
-      else walletName = 'EVM Wallet';
-      
-      console.log(`🔧 Using: ${walletName}`);
       
       try {
         // Request account access - this will trigger the wallet popup
@@ -364,34 +413,128 @@ export function ProductionWalletConnect() {
       <p className="text-zama-black text-opacity-80 mb-8">
         Connect your wallet to start managing encrypted tasks
       </p>
-      
-      {/* Clean Welcome Message */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <div className="flex items-center space-x-2">
-          <span className="text-blue-600">🔐</span>
-          <span className="text-blue-800 text-sm font-medium">Ready to Connect</span>
-        </div>
-        <p className="text-blue-700 text-xs mt-1">
-          Your wallet is ready to connect to the FHEVM Task Manager
-        </p>
-      </div>
 
       {/* Wallet Selection */}
       <div className="space-y-3 mb-6">
-        <button
-          onClick={handleConnectWallet}
-          disabled={isConnecting}
-          className={`bg-zama-black hover:bg-zama-gray-800 text-zama-yellow font-bold py-4 px-8 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl w-full flex items-center justify-center space-x-3 text-lg ${
-            isConnecting ? 'opacity-50' : ''
-          }`}
-        >
-          <Wallet className="w-6 h-6" />
-          <span>{isConnecting ? 'Connecting...' : 'Connect Wallet'}</span>
-          {isConnecting && (
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-zama-yellow"></div>
-          )}
-        </button>
-        
+        {/* Show wallet selector if multiple wallets detected */}
+        {availableWallets.length > 1 && (
+          <div className="relative">
+            <button
+              onClick={() => setIsOpen(!isOpen)}
+              className="bg-zama-gray-100 hover:bg-zama-gray-200 text-zama-black font-medium py-3 px-4 rounded-xl transition-all duration-200 w-full flex items-center justify-between"
+            >
+              <div className="flex items-center space-x-2">
+                {selectedWallet ? (
+                  <>
+                    <span className="text-xl">{selectedWallet.icon}</span>
+                    <span>{selectedWallet.name}</span>
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="w-5 h-5" />
+                    <span>Select Wallet ({availableWallets.length})</span>
+                  </>
+                )}
+              </div>
+              <ChevronDown className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isOpen && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-zama-gray-300 rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto">
+                <div className="p-2">
+                  <div className="text-xs text-zama-gray-500 font-medium mb-2 px-3">
+                    Available Wallets ({availableWallets.length})
+                  </div>
+                  {availableWallets.map((wallet, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleWalletSelect(wallet)}
+                      className={`w-full flex items-center space-x-3 px-3 py-2.5 text-left hover:bg-zama-gray-50 rounded-lg transition-colors ${
+                        selectedWallet?.name === wallet.name ? 'bg-zama-yellow/20' : ''
+                      }`}
+                    >
+                      <span className="text-2xl">{wallet.icon}</span>
+                      <span className="flex-1 font-medium text-zama-black">{wallet.name}</span>
+                      {selectedWallet?.name === wallet.name && (
+                        <Check className="w-5 h-5 text-zama-black" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Single wallet or connect button */}
+        {availableWallets.length > 0 && (
+          <button
+            onClick={handleConnectWallet}
+            disabled={isConnecting}
+            className={`bg-zama-black hover:bg-zama-gray-800 text-zama-yellow font-bold py-4 px-8 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl w-full flex items-center justify-center space-x-3 text-lg ${
+              isConnecting ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+          >
+            {selectedWallet ? (
+              <span className="text-2xl">{selectedWallet.icon}</span>
+            ) : (
+              <Wallet className="w-6 h-6" />
+            )}
+            <span>
+              {isConnecting
+                ? 'Connecting...'
+                : selectedWallet
+                ? `Connect ${selectedWallet.name}`
+                : availableWallets.length === 1
+                ? `Connect ${availableWallets[0].name}`
+                : 'Connect Wallet'}
+            </span>
+            {isConnecting && (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-zama-yellow"></div>
+            )}
+          </button>
+        )}
+
+        {/* No wallets detected message */}
+        {availableWallets.length === 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+            <div className="flex items-center space-x-2 text-yellow-800 mb-2">
+              <AlertTriangle className="w-5 h-5" />
+              <span className="font-medium">No Wallet Detected</span>
+            </div>
+            <p className="text-yellow-700 text-sm">
+              Please install a compatible wallet like{' '}
+              <a
+                href="https://metamask.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-yellow-900"
+              >
+                MetaMask
+              </a>
+              ,{' '}
+              <a
+                href="https://zerion.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-yellow-900"
+              >
+                Zerion
+              </a>
+              , or{' '}
+              <a
+                href="https://trustwallet.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-yellow-900"
+              >
+                Trust Wallet
+              </a>
+              .
+            </p>
+          </div>
+        )}
+
         {/* Refresh Button */}
         <button
           onClick={() => {
@@ -399,6 +542,7 @@ export function ProductionWalletConnect() {
             // Clear cached providers
             delete (window as any).__selectedProvider;
             delete (window as any).__stableProvider;
+            setSelectedWallet(null);
             detectWallets();
             (window as any).addNotification?.({
               type: 'info',

@@ -38,6 +38,7 @@ export function TaskForm({ task, onSubmit, onSubmitText, onSubmitNumbers, onCanc
           }
         })(),
         priority: task.priority,
+        numericId: 0, // Add numericId for compatibility
       });
     } else {
       // Set default due date to tomorrow

@@ -4,9 +4,12 @@ import { useState, useEffect } from 'react';
 
 interface HeaderProps {
   onDisconnect?: () => void;
+  encryptedOnly?: boolean;
+  onToggleEncryptedOnly?: () => void;
+  showEncryptedToggle?: boolean;
 }
 
-export function Header({ onDisconnect }: HeaderProps) {
+export function Header({ onDisconnect, encryptedOnly = false, onToggleEncryptedOnly, showEncryptedToggle = false }: HeaderProps) {
   const [walletState, setWalletState] = useState({
     isConnected: false,
     walletName: '',
@@ -14,35 +17,64 @@ export function Header({ onDisconnect }: HeaderProps) {
   });
 
   useEffect(() => {
+    // Cache previous values to avoid unnecessary state updates
+    let prevState = { isConnected: false, walletName: '', walletAddress: '' };
+
     const updateWalletState = () => {
       try {
         const isConnected = simpleWalletService.isWalletConnected();
         const walletName = simpleWalletService.getWalletName();
-        const walletAddress = simpleWalletService.getWalletAddress();
+        const walletAddress = simpleWalletService.getAddress();
         
-        setWalletState({
+        // Only update if state actually changed
+        const newState = {
           isConnected,
           walletName: walletName || '',
           walletAddress: walletAddress || ''
-        });
+        };
+
+        if (
+          newState.isConnected !== prevState.isConnected ||
+          newState.walletName !== prevState.walletName ||
+          newState.walletAddress !== prevState.walletAddress
+        ) {
+          prevState = newState;
+          setWalletState(newState);
+        }
       } catch (error) {
         console.log('Header: Wallet service not ready yet');
+        if (!prevState.isConnected) {
         setWalletState({
           isConnected: false,
           walletName: '',
           walletAddress: ''
         });
+        }
       }
     };
 
     // Update wallet state immediately
     updateWalletState();
 
-    // Set up interval to check for wallet changes
-    const interval = setInterval(updateWalletState, 1000);
+    // Set up interval to check for wallet changes (reduced frequency from 1s to 3s)
+    const interval = setInterval(updateWalletState, 3000);
 
-    // Cleanup interval on unmount
-    return () => clearInterval(interval);
+    // Listen for wallet events (accountsChanged) for immediate updates
+    const handleAccountsChanged = () => {
+      updateWalletState();
+    };
+
+    if (typeof window !== 'undefined' && window.ethereum) {
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== 'undefined' && window.ethereum) {
+        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+      }
+    };
   }, []);
   return (
     <header className="bg-gradient-to-r from-zama-yellow to-zama-yellow-light shadow-lg border-b-4 border-zama-yellow-dark">
@@ -56,21 +88,12 @@ export function Header({ onDisconnect }: HeaderProps) {
               <h1 className="text-3xl font-bold text-zama-black">
                 Confidential Task Manager
               </h1>
-              <p className="text-zama-black text-opacity-80 font-medium">
-                Powered by Zama FHEVM
-              </p>
             </div>
           </div>
           
           <div className="flex items-center space-x-4">
             {walletState.isConnected && (
               <div className="flex items-center space-x-3">
-                <div className="flex items-center space-x-2 bg-green-100 text-green-800 px-3 py-2 rounded-lg">
-                  <Wallet className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    {walletState.walletName} Connected
-                  </span>
-                </div>
                 {walletState.walletAddress && (
                   <div className="text-sm text-zama-black font-mono bg-zama-gray-100 px-2 py-1 rounded">
                     {walletState.walletAddress.slice(0, 6)}...{walletState.walletAddress.slice(-4)}
@@ -89,10 +112,16 @@ export function Header({ onDisconnect }: HeaderProps) {
               </div>
             )}
             
-            <div className="flex items-center space-x-3 text-zama-black font-semibold">
+            {showEncryptedToggle && (
+              <button
+                onClick={onToggleEncryptedOnly}
+                className={`flex items-center space-x-2 font-semibold px-3 py-2 rounded-lg transition-colors ${encryptedOnly ? 'bg-zama-black text-zama-yellow hover:bg-zama-gray-800' : 'text-zama-black bg-zama-gray-100 hover:bg-zama-gray-200'}`}
+                title="Toggle task filter"
+              >
               <Zap className="w-5 h-5" />
-              <span>Encrypted Tasks</span>
-            </div>
+                <span>{encryptedOnly ? 'Encrypted' : 'All Tasks'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

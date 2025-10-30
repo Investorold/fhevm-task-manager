@@ -15,6 +15,8 @@ export interface Task {
   sharedWith?: string[]; // Array of recipient addresses this task is shared with
   isLegacy?: boolean; // Whether task is legacy (created before localStorage sync)
   shouldEncrypt?: boolean; // Whether task should be encrypted (plain text if false)
+  parentTaskId?: number; // ID of the original task this is a reply to
+  parentTaskOwner?: string; // Address of the owner of the original task
 }
 
 export interface EncryptedTask {

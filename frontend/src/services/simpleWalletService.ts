@@ -132,6 +132,13 @@ export class SimpleWalletService {
       wallets.push({ name: 'SafePal', provider: window.ethereum });
     }
     
+    // Zerion Wallet
+    if (window.ethereum?.isZerion) {
+      wallets.push({ name: 'Zerion', provider: window.ethereum });
+    } else if (window.zerionWallet) {
+      wallets.push({ name: 'Zerion', provider: window.zerionWallet });
+    }
+    
     // EVM Ask
     if (window.evmAsk) {
       wallets.push({ name: 'EVM Ask', provider: window.evmAsk });

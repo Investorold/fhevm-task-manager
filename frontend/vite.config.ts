@@ -21,5 +21,9 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true, // This allows access from other devices on your network
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
 })
