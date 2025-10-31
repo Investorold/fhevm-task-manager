@@ -230,7 +230,7 @@ export function ProductionWalletConnect() {
       // Use selected wallet if available, otherwise use universal detection
       let provider = null;
       let walletName = 'Unknown Wallet';
-
+      
       // If a wallet is selected, use it
       if (selectedWallet) {
         console.log('🔧 Using selected wallet:', selectedWallet.name);
@@ -243,67 +243,67 @@ export function ProductionWalletConnect() {
         walletName = availableWallets[0].name;
       } else {
         // Fallback to universal detection - Handle provider conflicts by using a stable reference
-        const getStableProvider = () => {
-          console.log('🔧 Detecting wallet providers...');
-          console.log('🔧 window.ethereum:', !!window.ethereum);
-          console.log('🔧 window.ethereum.providers:', window.ethereum?.providers?.length || 'none');
-          console.log('🔧 window.evmAsk:', !!window.evmAsk);
-          
-          // If we already have a selected provider, use it
-          if ((window as any).__selectedProvider) {
-            console.log('🔧 Using cached provider');
-            return (window as any).__selectedProvider;
-          }
-          
-          // Check for multiple wallet providers
-          if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
-            console.log('🔧 Multiple wallets detected:', window.ethereum.providers.length);
-            
-            // Try to find MetaMask first, but use any available
-            const selectedProvider = window.ethereum.providers.find((p: any) => p.isMetaMask) || window.ethereum.providers[0];
-            
-            console.log('🔧 Selected provider from array:', selectedProvider?.isMetaMask ? 'MetaMask' : 'Other');
-            
-            // Store it globally to prevent conflicts
-            (window as any).__selectedProvider = selectedProvider;
-            return selectedProvider;
-          } 
-          // Single wallet provider
-          else if (window.ethereum) {
-            console.log('🔧 Single wallet detected');
-            
-            // Store it globally to prevent conflicts
-            (window as any).__selectedProvider = window.ethereum;
-            return window.ethereum;
-          }
-          // Check for specific wallets
-          else if (window.evmAsk) {
-            console.log('🔧 EVM Ask detected');
-            
-            // Store it globally to prevent conflicts
-            (window as any).__selectedProvider = window.evmAsk;
-            return window.evmAsk;
-          }
-          
-          console.log('🔧 No wallet provider found');
-          return null;
-        };
+      const getStableProvider = () => {
+        console.log('🔧 Detecting wallet providers...');
+        console.log('🔧 window.ethereum:', !!window.ethereum);
+        console.log('🔧 window.ethereum.providers:', window.ethereum?.providers?.length || 'none');
+        console.log('🔧 window.evmAsk:', !!window.evmAsk);
         
-        provider = getStableProvider();
-        
-        if (!provider) {
-          throw new Error('No EVM wallet found! Please install MetaMask, Trust Wallet, Coinbase Wallet, or any EVM-compatible wallet.');
+        // If we already have a selected provider, use it
+        if ((window as any).__selectedProvider) {
+          console.log('🔧 Using cached provider');
+          return (window as any).__selectedProvider;
         }
         
-        // Determine wallet name
-        if (provider.isMetaMask) walletName = 'MetaMask';
-        else if (provider.isCoinbaseWallet) walletName = 'Coinbase Wallet';
-        else if (provider.isTrust) walletName = 'Trust Wallet';
-        else if (provider.isRabby) walletName = 'Rabby';
-        else if (provider === window.evmAsk) walletName = 'EVM Ask';
-        else walletName = 'EVM Wallet';
+        // Check for multiple wallet providers
+        if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+          console.log('🔧 Multiple wallets detected:', window.ethereum.providers.length);
+          
+          // Try to find MetaMask first, but use any available
+          const selectedProvider = window.ethereum.providers.find((p: any) => p.isMetaMask) || window.ethereum.providers[0];
+          
+          console.log('🔧 Selected provider from array:', selectedProvider?.isMetaMask ? 'MetaMask' : 'Other');
+          
+          // Store it globally to prevent conflicts
+          (window as any).__selectedProvider = selectedProvider;
+          return selectedProvider;
+        } 
+        // Single wallet provider
+        else if (window.ethereum) {
+          console.log('🔧 Single wallet detected');
+          
+          // Store it globally to prevent conflicts
+          (window as any).__selectedProvider = window.ethereum;
+          return window.ethereum;
+        }
+        // Check for specific wallets
+        else if (window.evmAsk) {
+          console.log('🔧 EVM Ask detected');
+          
+          // Store it globally to prevent conflicts
+          (window as any).__selectedProvider = window.evmAsk;
+          return window.evmAsk;
+        }
         
-        console.log(`🔧 Using: ${walletName}`);
+        console.log('🔧 No wallet provider found');
+        return null;
+      };
+      
+      provider = getStableProvider();
+      
+      if (!provider) {
+        throw new Error('No EVM wallet found! Please install MetaMask, Trust Wallet, Coinbase Wallet, or any EVM-compatible wallet.');
+      }
+      
+      // Determine wallet name
+      if (provider.isMetaMask) walletName = 'MetaMask';
+      else if (provider.isCoinbaseWallet) walletName = 'Coinbase Wallet';
+      else if (provider.isTrust) walletName = 'Trust Wallet';
+      else if (provider.isRabby) walletName = 'Rabby';
+      else if (provider === window.evmAsk) walletName = 'EVM Ask';
+      else walletName = 'EVM Wallet';
+      
+      console.log(`🔧 Using: ${walletName}`);
       }
       
       try {
@@ -468,17 +468,17 @@ export function ProductionWalletConnect() {
 
         {/* Single wallet or connect button */}
         {availableWallets.length > 0 && (
-          <button
-            onClick={handleConnectWallet}
-            disabled={isConnecting}
-            className={`bg-zama-black hover:bg-zama-gray-800 text-zama-yellow font-bold py-4 px-8 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl w-full flex items-center justify-center space-x-3 text-lg ${
+        <button
+          onClick={handleConnectWallet}
+          disabled={isConnecting}
+          className={`bg-zama-black hover:bg-zama-gray-800 text-zama-yellow font-bold py-4 px-8 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl w-full flex items-center justify-center space-x-3 text-lg ${
               isConnecting ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
-          >
+          }`}
+        >
             {selectedWallet ? (
               <span className="text-2xl">{selectedWallet.icon}</span>
             ) : (
-              <Wallet className="w-6 h-6" />
+          <Wallet className="w-6 h-6" />
             )}
             <span>
               {isConnecting
@@ -489,10 +489,10 @@ export function ProductionWalletConnect() {
                 ? `Connect ${availableWallets[0].name}`
                 : 'Connect Wallet'}
             </span>
-            {isConnecting && (
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-zama-yellow"></div>
-            )}
-          </button>
+          {isConnecting && (
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-zama-yellow"></div>
+          )}
+        </button>
         )}
 
         {/* No wallets detected message */}
@@ -534,7 +534,7 @@ export function ProductionWalletConnect() {
             </p>
           </div>
         )}
-
+        
         {/* Refresh Button */}
         <button
           onClick={() => {

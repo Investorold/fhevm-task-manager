@@ -49,14 +49,9 @@ private-keys/
 *.tmp
 .temp/
 *.backup
-
-# Personal directories (remove these after cleaning)
-Area/
-CSC 207/
-Csc207/
-untitled/
-untitled1/
-untitled2/
+*.md.backup
+*_FIX.md
+*_DEBUG.md
 
 # Hardhat files (sensitive contract data)
 cache/

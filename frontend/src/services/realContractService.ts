@@ -1763,7 +1763,7 @@ class RealContractService {
         storedTask = senderTasks[taskId] 
           || Object.values(senderTasks).find((task: any) => task.id === taskId || task.numericId === taskId)
           || senderTasks[taskIndex];
-        if (storedTask) {
+      if (storedTask) {
           console.log('✅ Found task data from sender localStorage');
           console.log('🔍 Sender localStorage data:', storedTask);
         }

@@ -225,7 +225,7 @@ describe("TaskManager", function () {
     expect(decryptedPriority).to.equal(newPriority);
   });
 
-it("should share a task with another user", async function () {
+  it("should share a task with another user", async function () {
     const contractAddress = await contract.getAddress();
     const owner = signers[0];
     const recipient = signers[1];

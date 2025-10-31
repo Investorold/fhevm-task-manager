@@ -382,13 +382,13 @@ contract TaskManager is SepoliaConfig, Ownable {
         FHE.allow(task.description, recipient);
         FHE.allow(task.dueDate, recipient);
         FHE.allow(task.priority, recipient);
-
+        
         // Track the shared task
         if (!isTaskSharedWith[recipient][msg.sender][taskId]) {
             sharedTasks[recipient].push(taskId);
             isTaskSharedWith[recipient][msg.sender][taskId] = true;
         }
-
+        
         // Emit event for frontend to listen
         emit TaskShared(taskId, msg.sender, recipient);
     }
@@ -531,14 +531,14 @@ contract TaskManager is SepoliaConfig, Ownable {
     ) external {
         // Verify the decryption proof
         FHE.checkSignatures(requestId, cleartexts, decryptionProof);
-
+        
         address initiator = requestInitiator[requestId];
         require(initiator != address(0), "Request ID not found or already processed");
 
         // Decode the decrypted data (now includes description as 4th item)
         (uint64 decryptedTitle, uint64 decryptedDueDate, uint8 decryptedPriority, uint64 _decryptedDescription) = 
             abi.decode(cleartexts, (uint64, uint64, uint8, uint64));
-
+        
         // Emit event with decrypted data (for frontend to listen)
         emit TaskDecrypted(requestId, initiator, decryptedTitle, decryptedDueDate, decryptedPriority);
         
