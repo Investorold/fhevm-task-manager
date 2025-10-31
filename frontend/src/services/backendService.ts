@@ -18,6 +18,12 @@ const BACKEND_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_BACKEND_URL) ||
   DEFAULT_BACKEND_URL;
 
+console.log('🔗 Backend Service Configuration:', {
+  VITE_BACKEND_URL: (import.meta as any).env?.VITE_BACKEND_URL,
+  DEFAULT_BACKEND_URL,
+  BACKEND_URL
+});
+
 class BackendService {
   private userAddress: string | null = null;
 
