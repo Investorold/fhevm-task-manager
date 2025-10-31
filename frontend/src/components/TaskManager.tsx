@@ -124,6 +124,12 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
     };
   }, []);
 
+  // Helper to get wallet-scoped localStorage key
+  const getStorageKey = (): string => {
+    const userAddress = simpleWalletService.getAddress();
+    return userAddress ? `userTaskData_${userAddress}` : 'userTaskData';
+  };
+
   const loadTasks = async () => {
     setIsLoading(true);
     try {
@@ -724,7 +730,7 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
           shouldEncrypt: true,
           isEncrypted: true // Mark as encrypted for UI display
         };
-        localStorage.setItem('userTaskData', JSON.stringify(storedTasks));
+        localStorage.setItem(getStorageKey(), JSON.stringify(storedTasks));
         
         setTasks(prevTasks => [...prevTasks, newTask]);
         setShowTaskForm(false);
