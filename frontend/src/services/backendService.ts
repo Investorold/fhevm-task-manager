@@ -1,6 +1,7 @@
 // Backend API service for persistent task storage
 // In Vite, process.env is not defined in the browser. Use import.meta.env instead.
 import { simpleWalletService } from './simpleWalletService';
+import { ethers } from 'ethers';
 
 const DEFAULT_BACKEND_URL = (() => {
   try {
@@ -18,6 +19,25 @@ const BACKEND_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_BACKEND_URL) ||
   DEFAULT_BACKEND_URL;
 
+const buildAddressVariants = (address: string | undefined | null) => {
+  if (!address) return [] as string[];
+
+  const variants = new Set<string>();
+
+  try {
+    variants.add(address);
+    variants.add(address.toLowerCase());
+    variants.add(address.toUpperCase());
+    variants.add(ethers.getAddress(address));
+  } catch {
+    variants.add(address);
+    if (address?.toLowerCase) variants.add(address.toLowerCase());
+    if (address?.toUpperCase) variants.add(address.toUpperCase());
+  }
+
+  return Array.from(variants);
+};
+
 console.log('🔗 Backend Service Configuration:', {
   VITE_BACKEND_URL: (import.meta as any).env?.VITE_BACKEND_URL,
   DEFAULT_BACKEND_URL,
@@ -28,7 +48,11 @@ class BackendService {
   private userAddress: string | null = null;
 
   setUserAddress(address: string) {
-    this.userAddress = address;
+    try {
+      this.userAddress = ethers.getAddress(address);
+    } catch {
+      this.userAddress = address;
+    }
   }
 
   getUserAddress(): string {
@@ -41,8 +65,12 @@ class BackendService {
     try {
       const address = simpleWalletService.getAddress();
       if (address) {
-        this.userAddress = address;
-        return address;
+        try {
+          this.userAddress = ethers.getAddress(address);
+        } catch {
+          this.userAddress = address;
+        }
+        return this.userAddress;
       }
     } catch (error) {
       // If simpleWalletService is not available or wallet not connected, continue to throw error
@@ -68,18 +96,41 @@ class BackendService {
   }
 
   async getTasksForAddress(address: string): Promise<Record<string, any>> {
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/tasks/${address}`);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch tasks for address: ${response.statusText}`);
+    const variants = buildAddressVariants(address);
+
+    let lastError: unknown = null;
+
+    for (const candidate of variants) {
+      if (!candidate) continue;
+
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/tasks/${candidate}`);
+
+        if (!response.ok) {
+          lastError = new Error(`Failed to fetch tasks for address ${candidate}: ${response.statusText}`);
+          continue;
+        }
+
+        const data = await response.json();
+
+        if (data && Object.keys(data).length > 0) {
+          console.log('✅ Backend tasks fetched for address variant:', candidate, Object.keys(data));
+          return data;
+        }
+
+        // If empty, keep trying other variants before giving up
+        lastError = new Error(`No tasks stored for address variant ${candidate}`);
+      } catch (error) {
+        lastError = error;
+        console.warn(`⚠️ Failed to fetch tasks from backend for address variant ${candidate}:`, error);
       }
-      
-      return await response.json();
-    } catch (error) {
-      console.error(`Failed to fetch tasks from backend for address ${address}:`, error);
-      return {};
     }
+
+    if (lastError) {
+      console.warn(`⚠️ Could not fetch backend tasks for ${address}. Falling back.`, lastError);
+    }
+
+    return {};
   }
 
   async saveTask(taskData: any, taskIndex: number): Promise<void> {
@@ -91,8 +142,8 @@ class BackendService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...taskData,
-          taskIndex
+          taskIndex,
+          taskData
         }),
       });
       

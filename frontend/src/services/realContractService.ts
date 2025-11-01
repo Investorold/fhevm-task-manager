@@ -1203,6 +1203,17 @@ class RealContractService {
         const backendTasks = await backendService.getTasks();
         if (backendTasks && backendTasks[taskIndex]) {
           originalTaskData = backendTasks[taskIndex];
+
+          if (originalTaskData && typeof originalTaskData === 'object' && 'taskData' in originalTaskData) {
+            const { taskData, ...rest } = originalTaskData as any;
+            originalTaskData = {
+              ...taskData,
+              ...rest,
+              sharedWith: taskData?.sharedWith || rest?.sharedWith || [],
+              isShared: taskData?.isShared ?? rest?.isShared,
+            };
+          }
+
           console.log('✅ Retrieved original task data from BACKEND');
         }
       } catch (beErr) {
@@ -1213,10 +1224,28 @@ class RealContractService {
       if (!originalTaskData) {
         let storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
         originalTaskData = storedTasks[taskIndex];
+        if (originalTaskData && typeof originalTaskData === 'object' && 'taskData' in originalTaskData) {
+          const { taskData, ...rest } = originalTaskData as any;
+          originalTaskData = {
+            ...taskData,
+            ...rest,
+            sharedWith: taskData?.sharedWith || rest?.sharedWith || [],
+            isShared: taskData?.isShared ?? rest?.isShared,
+          };
+        }
         if (!originalTaskData) {
           console.log('🔍 Trying legacy localStorage key format...');
           storedTasks = JSON.parse(localStorage.getItem(legacyKey) || '{}');
           originalTaskData = storedTasks[taskIndex];
+          if (originalTaskData && typeof originalTaskData === 'object' && 'taskData' in originalTaskData) {
+            const { taskData, ...rest } = originalTaskData as any;
+            originalTaskData = {
+              ...taskData,
+              ...rest,
+              sharedWith: taskData?.sharedWith || rest?.sharedWith || [],
+              isShared: taskData?.isShared ?? rest?.isShared,
+            };
+          }
         }
       }
 

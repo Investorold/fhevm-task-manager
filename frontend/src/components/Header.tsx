@@ -7,9 +7,10 @@ interface HeaderProps {
   encryptedOnly?: boolean;
   onToggleEncryptedOnly?: () => void;
   showEncryptedToggle?: boolean;
+  isWalletConnected?: boolean;
 }
 
-export function Header({ onDisconnect, encryptedOnly = false, onToggleEncryptedOnly, showEncryptedToggle = false }: HeaderProps) {
+export function Header({ onDisconnect, encryptedOnly = false, onToggleEncryptedOnly, showEncryptedToggle = false, isWalletConnected }: HeaderProps) {
   const [walletState, setWalletState] = useState({
     isConnected: false,
     walletName: '',
@@ -76,6 +77,18 @@ export function Header({ onDisconnect, encryptedOnly = false, onToggleEncryptedO
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof isWalletConnected === 'boolean' && !isWalletConnected) {
+      setWalletState(prev => (
+        prev.isConnected
+          ? { isConnected: false, walletName: '', walletAddress: '' }
+          : prev
+      ));
+    }
+  }, [isWalletConnected]);
+  const effectiveConnection = typeof isWalletConnected === 'boolean' ? isWalletConnected : walletState.isConnected;
+
   return (
     <header className="bg-gradient-to-r from-zama-yellow to-zama-yellow-light shadow-lg border-b-4 border-zama-yellow-dark">
       <div className="container mx-auto px-4 py-6">
@@ -92,7 +105,7 @@ export function Header({ onDisconnect, encryptedOnly = false, onToggleEncryptedO
           </div>
           
           <div className="flex items-center space-x-4">
-            {walletState.isConnected && (
+            {effectiveConnection && (
               <div className="flex items-center space-x-3">
                 {walletState.walletAddress && (
                   <div className="text-sm text-zama-black font-mono bg-zama-gray-100 px-2 py-1 rounded">

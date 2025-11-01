@@ -1,5 +1,16 @@
-// Real FHEVM Service using CDN
-// import { initSDK, createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/bundle';
+// Real FHEVM Service preferring the locally hosted SDK bundle
+
+type FhevmModule = {
+  initSDK: () => Promise<void | boolean>;
+  createInstance: (config: any) => Promise<any>;
+  SepoliaConfig?: any;
+};
+
+declare global {
+  interface Window {
+    fhevm?: FhevmModule;
+  }
+}
 
 class FhevmService {
   private instance: any = null;
@@ -100,41 +111,16 @@ class FhevmService {
       console.log('🔧 Provider type:', typeof selectedProvider);
       console.log('🔧 Provider isMetaMask:', selectedProvider.isMetaMask);
 
-      // Try CDN first, then fallback to npm package
       let initSDK, createInstance, SepoliaConfig;
       try {
-        console.log('🔧 Trying CDN import...');
-        // @ts-ignore - CDN import not typed
-        const cdnModule = await import('https://cdn.zama.ai/relayer-sdk-js/0.2.0/relayer-sdk-js.js');
-        
-        // Check if module has required exports
-        if (!cdnModule || !cdnModule.initSDK) {
-          throw new Error('CDN module loaded but missing required exports');
-        }
-        
-        ({ initSDK, createInstance, SepoliaConfig } = cdnModule);
-        console.log('✅ CDN import successful');
-      } catch (cdnError: any) {
-        console.warn('⚠️ CDN import failed:', cdnError.message);
-        console.log('⚠️ Trying npm package fallback...');
-        
-        try {
-          const npmModule = await import('@zama-fhe/relayer-sdk/bundle');
-          
-          if (!npmModule || !npmModule.initSDK) {
-            throw new Error('NPM module loaded but missing required exports');
-          }
-          
-          ({ initSDK, createInstance, SepoliaConfig } = npmModule);
-          console.log('✅ NPM package import successful');
-        } catch (npmError: any) {
-          console.error('❌ Both CDN and NPM imports failed');
-          console.error('CDN error:', cdnError.message);
-          console.error('NPM error:', npmError.message);
-          throw new Error(`Failed to load FHEVM SDK from both CDN and NPM. Check your internet connection. CDN error: ${cdnError.message}`);
-        }
+        const sdkModule = await this.loadFhevmModule();
+        ({ initSDK, createInstance, SepoliaConfig } = sdkModule);
+        console.log('✅ FHEVM SDK module loaded successfully');
+      } catch (moduleError: any) {
+        console.error('❌ Failed to load FHEVM SDK module:', moduleError);
+        throw new Error(`Failed to load FHEVM SDK module: ${moduleError?.message || moduleError}`);
       }
-      
+
       // Verify we have initSDK before calling it
       if (!initSDK || typeof initSDK !== 'function') {
         throw new Error('initSDK function not available. FHEVM SDK may not have loaded correctly.');
@@ -476,6 +462,48 @@ class FhevmService {
 
   getInstance(): any {
     return this.instance;
+  }
+
+  private async loadFhevmModule(): Promise<FhevmModule> {
+    const globalModule = window.fhevm;
+    if (globalModule && typeof globalModule.initSDK === 'function') {
+      console.log('✅ Using FHEVM SDK from window.fhevm');
+      return globalModule;
+    }
+
+    try {
+      console.log('🔧 Attempting to import local FHEVM bundle...');
+      const localUrl = typeof window !== 'undefined'
+        ? `${window.location.origin}/relayer-sdk/relayer-sdk-js.js`
+        : '/relayer-sdk/relayer-sdk-js.js';
+
+      // @ts-ignore - local public bundle has no types
+      const localModule = await import(/* @vite-ignore */ localUrl);
+
+      if (localModule && typeof localModule.initSDK === 'function') {
+        console.log('✅ Local FHEVM bundle import successful');
+        return localModule as FhevmModule;
+      }
+
+      console.warn('⚠️ Local FHEVM bundle loaded without expected exports');
+    } catch (localError) {
+      console.warn('⚠️ Local FHEVM bundle import failed:', (localError as Error)?.message || localError);
+    }
+
+    try {
+      console.log('🔧 Falling back to npm FHEVM package...');
+      const npmModule = (await import('@zama-fhe/relayer-sdk/bundle')) as unknown as FhevmModule;
+
+      if (npmModule && typeof npmModule.initSDK === 'function') {
+        console.log('✅ NPM FHEVM package import successful');
+        return npmModule;
+      }
+
+      throw new Error('NPM module loaded but missing required exports');
+    } catch (npmError) {
+      console.error('❌ Unable to load FHEVM SDK from any source:', (npmError as Error)?.message || npmError);
+      throw npmError;
+    }
   }
 
   // Helper function to convert string to number for encryption

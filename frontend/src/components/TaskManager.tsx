@@ -341,12 +341,31 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
         const mergedTasks = validIndices
           .map((actualBlockchainIndex) => {
           const blockchainTask = blockchainTasks[actualBlockchainIndex];
-          const storedTask = storedTasks[actualBlockchainIndex];
+          const rawStoredTask = storedTasks[actualBlockchainIndex];
+
+          // Handle legacy backend payloads that wrapped metadata under taskData
+          const storedTask = (() => {
+            if (!rawStoredTask) {
+              return undefined;
+            }
+
+            if (rawStoredTask.taskData) {
+              const { taskData, ...rest } = rawStoredTask;
+              return {
+                ...taskData,
+                ...rest,
+                sharedWith: taskData.sharedWith || rest.sharedWith || [],
+                isShared: taskData.isShared ?? rest.isShared,
+              };
+            }
+
+            return rawStoredTask;
+          })();
           
           console.log(`🔍 Loading task at blockchain index ${actualBlockchainIndex}:`, {
             hasStoredTask: !!storedTask,
-            storedTask: storedTask,
-            blockchainTask: blockchainTask,
+            storedTask,
+            blockchainTask,
             allStoredTasks: Object.keys(storedTasks)
           });
           
@@ -811,6 +830,8 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
           throw new Error('User address not available');
         }
         
+        const stableTaskId = tasksAfter?.[actualTaskIndex]?.stableTaskId ?? actualTaskIndex;
+
         const taskMetadata = {
           title: taskData.title,
           description: taskData.description,
@@ -819,13 +840,21 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
           createdAt: new Date().toISOString(),
           status: taskData.status,
           shouldEncrypt: true,
-          address: userAddress
+          address: userAddress,
+          taskIndex: actualTaskIndex,
+          stableTaskId,
         };
         
         // Try to save to backend first
         try {
           await backendService.saveTask(taskMetadata, actualTaskIndex);
           console.log('✅ Task metadata saved to BACKEND at index:', actualTaskIndex);
+          // Always persist to localStorage so decrypt fallback works even if backend becomes unavailable later
+          const scopedKey = `userTaskData_${userAddress}`;
+          const storedTasks = JSON.parse(localStorage.getItem(scopedKey) || '{}');
+          storedTasks[actualTaskIndex] = taskMetadata;
+          localStorage.setItem(scopedKey, JSON.stringify(storedTasks));
+          console.log('✅ Task metadata mirrored to localStorage for offline fallback');
           
           // Show success notification
           if ((window as any).addNotification) {
@@ -871,7 +900,8 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
           id: actualTaskIndex, // Use blockchain index as ID
           createdAt: new Date().toISOString(),
           isEncrypted: true, // CRITICAL: Mark as encrypted
-          shouldEncrypt: true
+          shouldEncrypt: true,
+          stableTaskId,
         };
         
         setTasks(prev => [...prev, newTask]);
@@ -1404,10 +1434,17 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
     }
   };
 
-  const handleDecryptTask = async (taskId: number) => {
-    const task = tasks.find(t => t.id === taskId) || receivedTasks.find(t => t.id === taskId);
+  const handleDecryptTask = (taskId: number, options?: { preferReceived?: boolean }) => {
+    const preferReceived = options?.preferReceived ?? false;
+
+    const primaryList = preferReceived ? receivedTasks : tasks;
+    const secondaryList = preferReceived ? tasks : receivedTasks;
+
+    const task = primaryList.find((t) => t.id === taskId) || secondaryList.find((t) => t.id === taskId);
+
     if (task) {
-      setDecryptingTask(task);
+      // Clone to avoid accidental mutations propagating back into the list
+      setDecryptingTask({ ...task });
     }
   };
 
@@ -1655,8 +1692,11 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
         }
       }
       
-      // Check if this is a shared task
-      const isSharedTask = !!decryptingTask.originalOwner;
+      const receivedMatch = receivedTasks.find((t) => t.id === decryptingTask.id);
+      const resolvedOriginalOwner = decryptingTask.originalOwner || receivedMatch?.originalOwner;
+      const resolvedBlockchainIndex = decryptingTask.blockchainIndex ?? receivedMatch?.blockchainIndex;
+
+      const isSharedTask = !!resolvedOriginalOwner;
       
       // Call real contract method to decrypt task
       console.log('🔓 Starting decryption for task ID:', decryptingTask.id);
@@ -1669,8 +1709,8 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
       });
       
       // Use appropriate decryption method
-      const result = isSharedTask && decryptingTask.originalOwner
-        ? await realContractService.decryptSharedTask(decryptingTask.id, decryptingTask.originalOwner)
+      const result = isSharedTask && resolvedOriginalOwner
+        ? await realContractService.decryptSharedTask(decryptingTask.id, resolvedOriginalOwner)
         : await realContractService.decryptTask(decryptingTask.id);
       
       console.log('🔓 Decryption result:', result);
@@ -1684,15 +1724,133 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
           return newSet;
         });
         
+        const normalizeDecryptedMetadata = (raw: any) => {
+          if (!raw) return null;
+
+          const merged = (() => {
+            if (raw.taskData && typeof raw.taskData === 'object') {
+              return { ...raw.taskData, ...raw };
+            }
+            return raw;
+          })();
+
+          const parsePriority = (value: any) => {
+            if (value === null || value === undefined) return undefined;
+            if (typeof value === 'number') return value;
+            const parsed = parseInt(value, 10);
+            return isNaN(parsed) ? undefined : parsed;
+          };
+
+          const parseDueDate = (value: any) => {
+            if (!value) return '';
+            if (value instanceof Date) return value.toISOString();
+            if (typeof value === 'number') {
+              const ms = value < 10000000000 ? value * 1000 : value;
+              const date = new Date(ms);
+              return isNaN(date.getTime()) ? '' : date.toISOString();
+            }
+            const parsed = Date.parse(value);
+            if (!Number.isNaN(parsed)) {
+              return new Date(parsed).toISOString();
+            }
+            return String(value);
+          };
+
+          return {
+            title: merged.title ?? merged.name ?? '',
+            description: merged.description ?? merged.notes ?? '',
+            dueDate: parseDueDate(merged.dueDate ?? merged.deadline),
+            priority: parsePriority(merged.priority ?? merged.importance ?? merged.rank),
+          };
+        };
+
+        const resolveTaskMetadata = (collection: any, stableId: number, index?: number) => {
+          if (!collection) return null;
+
+          const arrayCandidates: any[] = Array.isArray(collection)
+            ? collection
+            : typeof collection === 'object'
+              ? Object.values(collection)
+              : [];
+
+          const identifyCandidate = (candidate: any): boolean => {
+            if (!candidate || typeof candidate !== 'object') return false;
+            const candidateIds = [
+              candidate?.stableTaskId,
+              candidate?.taskId,
+              candidate?.taskID,
+              candidate?.id,
+              candidate?.index,
+              candidate?.taskIndex,
+              candidate?.blockchainIndex,
+              candidate?.originalId,
+              candidate?.numericId,
+              candidate?.timestamp,
+              candidate?.createdAt,
+            ]
+              .filter((value) => value !== null && value !== undefined)
+              .map((value) => {
+                if (typeof value === 'number' || typeof value === 'bigint') {
+                  return value.toString();
+                }
+                return String(value);
+              });
+
+            const targets = [stableId, index]
+              .filter((value) => value !== null && value !== undefined)
+              .map((value) => value?.toString?.() ?? String(value));
+
+            if (targets.length === 0) {
+              return false;
+            }
+
+            return targets.some((target) => candidateIds.includes(target));
+          };
+
+          const candidates: any[] = [];
+
+          const collect = (value: any) => {
+            if (value !== undefined && value !== null) {
+              candidates.push(value);
+            }
+          };
+
+          if (!Array.isArray(collection) && typeof collection === 'object') {
+            if (index !== undefined) {
+              collect(collection?.[index]);
+              collect(collection?.[String(index)]);
+            }
+            if (stableId !== undefined && stableId !== null) {
+              collect(collection?.[stableId]);
+              collect(collection?.[String(stableId)]);
+            }
+          }
+
+          candidates.push(...arrayCandidates);
+
+          const matched = candidates.find(identifyCandidate);
+          if (matched) {
+            return matched;
+          }
+
+          const firstWithReadableTitle = candidates.find((candidate) => {
+            const normalized = normalizeDecryptedMetadata(candidate);
+            return normalized && normalized.title && normalized.title !== '******* ********';
+          });
+
+          return firstWithReadableTitle ?? candidates[0] ?? null;
+        };
+
         // Update the task with decrypted data if available (for both my tasks and received tasks)
         if (result.decryptedData) {
           // Check if task is in receivedTasks or my tasks
           const isReceivedTask = receivedTasks.some(t => t.id === decryptingTask.id);
           
-          // IMPORTANT: Get the original readable text from backend/localStorage
-          // The result.decryptedData may contain numeric hashes from blockchain
-          // We need the actual readable text that was stored when creating the task
-          let actualDecryptedData = result.decryptedData;
+      // IMPORTANT: Get the original readable text from backend/localStorage
+      // The result.decryptedData may contain numeric hashes from blockchain
+      // We need the actual readable text that was stored when creating the task
+      const normalizedRelayerData = normalizeDecryptedMetadata(result.decryptedData);
+      let actualDecryptedData = normalizedRelayerData ?? result.decryptedData;
           
           // Try to get original task data from backend first, then localStorage
           if (!isReceivedTask) {
@@ -1700,13 +1858,16 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
               // Try 1: Backend (most reliable)
               try {
                 const backendTasks = await backendService.getTasks();
-                if (backendTasks[decryptingTask.id]) {
-                  const backendTask = backendTasks[decryptingTask.id];
+                const backendCandidate = resolveTaskMetadata(
+                  backendTasks,
+                  decryptingTask.stableTaskId ?? decryptingTask.id,
+                  decryptingTask.blockchainIndex ?? decryptingTask.id,
+                );
+                const normalizedBackend = normalizeDecryptedMetadata(backendCandidate);
+                if (normalizedBackend) {
                   actualDecryptedData = {
-                    title: backendTask.title,
-                    description: backendTask.description || result.decryptedData.description || '',
-                    dueDate: backendTask.dueDate || result.decryptedData.dueDate,
-                    priority: backendTask.priority || result.decryptedData.priority
+                    ...actualDecryptedData,
+                    ...normalizedBackend,
                   };
                   console.log('✅ Using original task data from backend:', actualDecryptedData);
                 }
@@ -1718,15 +1879,17 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
                 if (userAddress) {
                   const userKey = `userTaskData_${userAddress}`;
                   const storedTasks = JSON.parse(localStorage.getItem(userKey) || localStorage.getItem('userTaskData') || '{}');
-                  const originalTask = storedTasks[decryptingTask.id];
-                  
-                  if (originalTask && originalTask.title && !result.decryptedData.title?.includes('Â')) {
-                    // Use original task data if available and decrypted data looks garbled
+                  const originalTask = resolveTaskMetadata(
+                    storedTasks,
+                    decryptingTask.stableTaskId ?? decryptingTask.id,
+                    decryptingTask.blockchainIndex ?? decryptingTask.id,
+                  );
+
+                  const normalizedStored = normalizeDecryptedMetadata(originalTask);
+                  if (normalizedStored) {
                     actualDecryptedData = {
-                      title: originalTask.title,
-                      description: originalTask.description || result.decryptedData.description || '',
-                      dueDate: originalTask.dueDate || result.decryptedData.dueDate,
-                      priority: originalTask.priority || result.decryptedData.priority
+                      ...actualDecryptedData,
+                      ...normalizedStored,
                     };
                     console.log('✅ Using original task data from localStorage:', actualDecryptedData);
                   }
@@ -1735,8 +1898,51 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
             } catch (error) {
               console.warn('⚠️ Could not get original task data, using decrypted data:', error);
             }
+          } else if (resolvedOriginalOwner) {
+            try {
+              const ownerTasks = await backendService.getTasksForAddress(resolvedOriginalOwner);
+              const matchingOwnerTask = resolveTaskMetadata(
+                ownerTasks,
+                decryptingTask.stableTaskId ?? decryptingTask.id,
+                resolvedBlockchainIndex ?? decryptingTask.id,
+              );
+              const normalizedOwner = normalizeDecryptedMetadata(matchingOwnerTask);
+              if (normalizedOwner) {
+                actualDecryptedData = {
+                  ...normalizedOwner,
+                  description: normalizedOwner.description ?? actualDecryptedData?.description ?? '',
+                };
+                console.log('✅ Using shared task metadata from original owner:', actualDecryptedData);
+              }
+            } catch (sharedMetaError) {
+              console.warn('⚠️ Could not load shared task metadata from original owner:', sharedMetaError);
+            }
           }
           
+          // Fallback to relayer-provided values if backend metadata missing
+          if ((actualDecryptedData?.title === undefined || actualDecryptedData?.title === '') && normalizedRelayerData?.title) {
+            actualDecryptedData = { ...actualDecryptedData, title: normalizedRelayerData.title };
+          }
+          if ((actualDecryptedData?.description === undefined || actualDecryptedData?.description === '') && normalizedRelayerData?.description) {
+            actualDecryptedData = { ...actualDecryptedData, description: normalizedRelayerData.description };
+          }
+          if ((actualDecryptedData?.dueDate === undefined || actualDecryptedData?.dueDate === '') && normalizedRelayerData?.dueDate) {
+            actualDecryptedData = { ...actualDecryptedData, dueDate: normalizedRelayerData.dueDate };
+          }
+          if ((actualDecryptedData?.priority === undefined || actualDecryptedData?.priority === null) && normalizedRelayerData?.priority !== undefined) {
+            actualDecryptedData = { ...actualDecryptedData, priority: normalizedRelayerData.priority };
+          }
+
+          // Ensure we have sensible defaults to avoid placeholders persisting
+          actualDecryptedData = {
+            title: actualDecryptedData?.title ?? '',
+            description: actualDecryptedData?.description ?? '',
+            dueDate: normalizeDecryptedMetadata({ dueDate: actualDecryptedData?.dueDate })?.dueDate || '',
+            priority: typeof actualDecryptedData?.priority === 'number'
+              ? actualDecryptedData.priority
+              : parseInt(actualDecryptedData?.priority ?? '0', 10) || 0,
+          };
+
           if (isReceivedTask) {
             setReceivedTasks(prev => prev.map(task => 
               task.id === decryptingTask.id 
@@ -1745,8 +1951,9 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
                     title: actualDecryptedData.title,
                     description: actualDecryptedData.description || task.description,
                     dueDate: actualDecryptedData.dueDate,
-                    priority: actualDecryptedData.priority,
-                    isEncrypted: false // Mark as decrypted
+                    priority: actualDecryptedData.priority ?? task.priority ?? 0,
+                    isEncrypted: false, // Mark as decrypted so UI shows plaintext
+                    shouldEncrypt: task.shouldEncrypt,
                   }
                 : task
             ));
@@ -2300,7 +2507,7 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
                 onComplete={() => handleCompleteTask(task.id)}
                 onDelete={() => handleDeleteTask(task.id)}
                 onShare={() => setSharingTask(task)}
-                onDecrypt={() => handleDecryptTask(task.id)}
+                onDecrypt={() => handleDecryptTask(task.id, { preferReceived: true })}
                 isDecrypted={decryptedTasks.has(task.id)}
                 displayIndex={receivedTasks.indexOf(task)}
                 isSelectionMode={isSelectionMode}
@@ -2386,3 +2593,4 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
     </div>
   );
 }
+
