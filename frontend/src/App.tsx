@@ -86,10 +86,16 @@ function App() {
       console.log('🔍 Contract address:', contractAddress);
       
       // Add a small delay to ensure wallet is fully ready (reduced for faster UX)
-      setTimeout(() => {
+      setTimeout(async () => {
         if (!isDemoMode) {
-          console.log('🚀 Initializing contract service after delay...');
-          realContractService.initialize(contractAddress);
+          try {
+            console.log('🚀 Initializing contract service after delay...');
+            await realContractService.initialize(contractAddress);
+            console.log('✅ Contract service initialized successfully');
+          } catch (error) {
+            console.error('❌ Contract service initialization failed:', error);
+            console.log('⚠️ App will continue but contract features may not work');
+          }
         } else {
           console.log('🎮 Demo mode: Skipping wallet service initialization');
         }

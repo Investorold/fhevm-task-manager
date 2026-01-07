@@ -1,201 +1,182 @@
 import { ethers } from 'ethers';
+import { secureLogger } from '../utils/secureLogger';
+import { clearEncryptionKeyCache } from '../utils/clientEncryption';
 
-// Simple wallet connection that works with ANY wallet
-export class SimpleWalletService {
-  private provider: any = null;
-  private signer: any = null;
+declare global {
+  interface Window {
+    ethereum?: any;
+    okxwallet?: any;
+    phantom?: { ethereum?: any };
+    zerionWallet?: any;
+    evmAsk?: any;
+    __stableProvider?: any;
+    __selectedProvider?: any;
+  }
+}
+
+class SimpleWalletService {
+  private provider: ethers.BrowserProvider | null = null;
+  private signer: ethers.Signer | null = null;
   private isConnected = false;
   private address = '';
   private walletName = '';
-  
+
   private readonly STORAGE_KEY = 'fhevm_wallet_connection';
   private readonly INACTIVITY_TIMEOUT = 5 * 24 * 60 * 60 * 1000; // 5 days
 
-  // Provider conflict resolution
-  private resolveProviderConflicts() {
+  selectProvider() {
     try {
-      // First, try to use the pre-resolved provider from the HTML script
-      if ((window as any).__stableProvider) {
-        console.log('🔧 Using pre-resolved stable provider');
-        return (window as any).__stableProvider;
+      if (window.__stableProvider) {
+        return window.__stableProvider;
       }
-      
-      // If we already have a selected provider, use it
-      if ((window as any).__selectedProvider) {
-        console.log('🔧 Using existing selected provider');
-        return (window as any).__selectedProvider;
+
+      if (window.__selectedProvider) {
+        return window.__selectedProvider;
       }
 
       let selectedProvider = null;
 
-      // Handle multiple providers scenario
-      if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
-        console.log('🔧 Multiple providers detected:', window.ethereum.providers.length);
-        
-        // Prefer MetaMask, but use any available
-        selectedProvider = window.ethereum.providers.find((p: any) => p.isMetaMask) || window.ethereum.providers[0];
-        
-        console.log('🔧 Selected provider from array:', selectedProvider?.isMetaMask ? 'MetaMask' : 'Other');
-      } 
-      // Single provider scenario
-      else if (window.ethereum) {
-        console.log('🔧 Single provider detected');
-        selectedProvider = window.ethereum;
+      // Try to access window.ethereum safely (it might be read-only due to extension conflicts)
+      try {
+        if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+          // Multiple providers detected - prefer MetaMask
+          selectedProvider = window.ethereum.providers.find((p: any) => p.isMetaMask) || window.ethereum.providers[0];
+        } else if (window.ethereum) {
+          selectedProvider = window.ethereum;
+        }
+      } catch (e) {
+        // window.ethereum might be read-only due to extension conflicts
+        secureLogger.warn('Could not access window.ethereum directly, trying alternative methods:', e);
+        // Try to access via providers array if available
+        try {
+          if ((window as any).ethereum?.providers?.length > 0) {
+            selectedProvider = (window as any).ethereum.providers.find((p: any) => p.isMetaMask) || (window as any).ethereum.providers[0];
+          }
+        } catch (e2) {
+          secureLogger.warn('Alternative provider access also failed:', e2);
+        }
       }
-      // Check for specific wallets
-      else if (window.evmAsk) {
-        console.log('🔧 EVM Ask detected');
+
+      if (!selectedProvider && window.evmAsk) {
         selectedProvider = window.evmAsk;
       }
 
       if (selectedProvider) {
-        // Store the stable provider to prevent conflicts
-        (window as any).__stableProvider = selectedProvider;
-        (window as any).__selectedProvider = selectedProvider;
-        console.log('🔧 Provider stored as stable reference');
+        window.__stableProvider = selectedProvider;
+        window.__selectedProvider = selectedProvider;
         return selectedProvider;
       }
 
       return null;
     } catch (error) {
-      console.error('❌ Provider conflict resolution failed:', error);
+      secureLogger.error('Provider conflict resolution failed:', error);
       return null;
     }
   }
 
-  // Detect all available wallets
-  private detectWallets() {
-    const wallets = [];
-    
-    // MetaMask
-    if (window.ethereum?.isMetaMask) {
-      wallets.push({ name: 'MetaMask', provider: window.ethereum });
-    }
-    
-    // Trust Wallet
-    if (window.ethereum?.isTrust) {
-      wallets.push({ name: 'Trust Wallet', provider: window.ethereum });
-    }
-    
-    // Coinbase Wallet
-    if (window.ethereum?.isCoinbaseWallet) {
-      wallets.push({ name: 'Coinbase Wallet', provider: window.ethereum });
-    }
-    
-    // Brave Wallet
-    if (window.ethereum?.isBraveWallet) {
-      wallets.push({ name: 'Brave Wallet', provider: window.ethereum });
-    }
-    
-    // OKX Wallet
-    if (window.okxwallet) {
-      wallets.push({ name: 'OKX Wallet', provider: window.okxwallet });
-    }
-    
-    // Phantom (Ethereum)
-    if (window.phantom?.ethereum) {
-      wallets.push({ name: 'Phantom', provider: window.phantom.ethereum });
-    }
-    
-    // Rainbow Wallet
-    if (window.ethereum?.isRainbow) {
-      wallets.push({ name: 'Rainbow Wallet', provider: window.ethereum });
-    }
-    
-    // WalletConnect
-    if (window.ethereum?.isWalletConnect) {
-      wallets.push({ name: 'WalletConnect', provider: window.ethereum });
-    }
-    
-    // Frame
-    if (window.ethereum?.isFrame) {
-      wallets.push({ name: 'Frame', provider: window.ethereum });
-    }
-    
-    // TokenPocket
-    if (window.ethereum?.isTokenPocket) {
-      wallets.push({ name: 'TokenPocket', provider: window.ethereum });
-    }
-    
-    // Bitget Wallet
-    if (window.ethereum?.isBitgetWallet) {
-      wallets.push({ name: 'Bitget Wallet', provider: window.ethereum });
-    }
-    
-    // Math Wallet
-    if (window.ethereum?.isMathWallet) {
-      wallets.push({ name: 'Math Wallet', provider: window.ethereum });
-    }
-    
-    // SafePal
-    if (window.ethereum?.isSafePal) {
-      wallets.push({ name: 'SafePal', provider: window.ethereum });
-    }
-    
-    // Zerion Wallet
-    if (window.ethereum?.isZerion) {
-      wallets.push({ name: 'Zerion', provider: window.ethereum });
-    } else if (window.zerionWallet) {
-      wallets.push({ name: 'Zerion', provider: window.zerionWallet });
-    }
-    
-    // EVM Ask
-    if (window.evmAsk) {
-      wallets.push({ name: 'EVM Ask', provider: window.evmAsk });
-    }
-    
-    // Generic Ethereum (fallback)
-    if (window.ethereum && wallets.length === 0) {
-      wallets.push({ name: 'Ethereum Wallet', provider: window.ethereum });
-    }
-    
-    return wallets;
-  }
+  async loadPersistedConnection(retryCount = 0): Promise<boolean> {
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY = 500; // 500ms between retries
 
-  async loadPersistedConnection(): Promise<boolean> {
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
-      if (!stored) return false;
+      if (!stored) {
+        secureLogger.debug('No stored wallet connection found');
+        return false;
+      }
 
       const { address, timestamp } = JSON.parse(stored);
-      
-      // Check if connection expired (5 days of inactivity)
-      if (Date.now() - timestamp > this.INACTIVITY_TIMEOUT) {
-        console.log('⏰ Wallet connection expired (5 days inactivity)');
+      const timeSinceLastActivity = Date.now() - timestamp;
+
+      if (timeSinceLastActivity > this.INACTIVITY_TIMEOUT) {
+        secureLogger.debug(`Wallet connection expired (${Math.round(timeSinceLastActivity / (60 * 60 * 1000))} hours old)`);
         localStorage.removeItem(this.STORAGE_KEY);
         return false;
       }
 
-      // Try to reconnect
-      const selectedProvider = (window as any).__selectedProvider || window.ethereum;
-      if (!selectedProvider) return false;
+      // Try to reconnect - use __selectedProvider first (more stable)
+      let selectedProvider = (window as any).__selectedProvider || window.ethereum;
 
-      console.log('🔄 Restoring wallet connection...');
-      
+      // Wait for wallet extension to initialize if not ready
+      if (!selectedProvider && retryCount < MAX_RETRIES) {
+        secureLogger.debug(`Wallet provider not ready, retry ${retryCount + 1}/${MAX_RETRIES}...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return this.loadPersistedConnection(retryCount + 1);
+      }
+
+      if (!selectedProvider) {
+        secureLogger.debug('No wallet provider available for restore after retries');
+        return false;
+      }
+
       this.provider = new ethers.BrowserProvider(selectedProvider);
-      
+
       // Check if wallet is still connected
-      const accounts = await selectedProvider.request({ method: 'eth_accounts' });
-      if (!accounts || accounts.length === 0 || accounts[0].toLowerCase() !== address.toLowerCase()) {
-        console.log('⚠️ Wallet no longer connected');
+      // Use try-catch for eth_accounts as it may fail if wallet is locked
+      let accounts: string[] = [];
+      try {
+        accounts = await selectedProvider.request({ method: 'eth_accounts' });
+      } catch (e) {
+        // Wallet might be locked - retry a few times
+        if (retryCount < MAX_RETRIES) {
+          secureLogger.debug(`Wallet may be locked, retry ${retryCount + 1}/${MAX_RETRIES}...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          return this.loadPersistedConnection(retryCount + 1);
+        }
+        secureLogger.debug('Wallet may be locked, will retry on unlock');
+        return false;
+      }
+
+      if (!accounts || accounts.length === 0) {
+        // Wallet is locked or not connected - retry a few times (extension might still be loading)
+        if (retryCount < MAX_RETRIES) {
+          secureLogger.debug(`No accounts yet, retry ${retryCount + 1}/${MAX_RETRIES}...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          return this.loadPersistedConnection(retryCount + 1);
+        }
+        secureLogger.debug('Wallet locked or not connected, keeping storage for retry');
+        return false;
+      }
+      
+      if (accounts[0].toLowerCase() !== address.toLowerCase()) {
+        // Account changed - remove storage
+        secureLogger.debug('Account changed, removing stored connection');
         localStorage.removeItem(this.STORAGE_KEY);
         return false;
       }
 
+      // Successfully restored!
       this.signer = await this.provider.getSigner();
       this.address = address;
       this.isConnected = true;
+      
+      // Detect wallet name from provider (don't assume MetaMask)
+      if (selectedProvider.isMetaMask) {
       this.walletName = 'MetaMask';
-
-      console.log('✅ Wallet connection restored:', address);
+      } else if (selectedProvider.isCoinbaseWallet) {
+        this.walletName = 'Coinbase Wallet';
+      } else if (selectedProvider.isTrust) {
+        this.walletName = 'Trust Wallet';
+      } else if (selectedProvider.isRabby) {
+        this.walletName = 'Rabby';
+      } else if (selectedProvider.isBraveWallet) {
+        this.walletName = 'Brave Wallet';
+      } else if (selectedProvider === window.evmAsk) {
+        this.walletName = 'EVM Ask';
+      } else if (selectedProvider === window.okxwallet) {
+        this.walletName = 'OKX Wallet';
+      } else if (selectedProvider === window.phantom?.ethereum) {
+        this.walletName = 'Phantom';
+      } else {
+        this.walletName = 'EVM Wallet';
+      }
       
-      // Update timestamp
-      this.saveConnection();
-      
+      this.saveConnection(); // Refresh timestamp
+      secureLogger.debug(`Wallet connection restored for ${address.substring(0, 6)}... (${this.walletName})`);
       return true;
-    } catch (error) {
-      console.log('⚠️ Failed to restore wallet connection:', error);
-      localStorage.removeItem(this.STORAGE_KEY);
+    } catch (error: any) {
+      secureLogger.debug('Failed to restore wallet connection:', error?.message || error);
+      // Don't remove storage on error - might be temporary (wallet locked, etc.)
       return false;
     }
   }
@@ -209,82 +190,92 @@ export class SimpleWalletService {
     }
   }
 
+  /**
+   * Update activity timestamp - call this on user interactions
+   * This keeps the wallet connected if user is active
+   */
+  updateActivity() {
+    if (this.isConnected && this.address) {
+      this.saveConnection(); // Refresh timestamp
+    }
+  }
+
   async connect(): Promise<void> {
-    try {
-      console.log('🔧 Initializing wallet service...');
-      
-      // Resolve provider conflicts first
-      const selectedProvider = this.resolveProviderConflicts();
-      
-      if (!selectedProvider) {
-        throw new Error('No wallet provider available.');
-      }
-      
-      console.log('🔧 Using resolved provider:', selectedProvider);
-      console.log('🔧 Provider type:', typeof selectedProvider);
-      console.log('🔧 Provider methods:', Object.getOwnPropertyNames(selectedProvider));
-      
-      console.log('🔧 Creating ethers provider and signer...');
-      
-      // Create provider and signer
-      this.provider = new ethers.BrowserProvider(selectedProvider);
-      this.signer = await this.provider.getSigner();
-      
-      const address = await this.signer.getAddress();
-      const network = await this.provider.getNetwork();
-      
-      console.log('✅ Wallet service connected:', address);
-      console.log('✅ Network:', network.name, network.chainId);
-      
-      this.isConnected = true;
-      this.address = address;
+    const selectedProvider = this.selectProvider();
+    if (!selectedProvider) {
+      throw new Error('No wallet provider available. Install MetaMask or a compatible wallet.');
+    }
+
+    this.provider = new ethers.BrowserProvider(selectedProvider);
+    this.signer = await this.provider.getSigner();
+
+    const address = await this.signer.getAddress();
+    const network = await this.provider.getNetwork();
+
+    // Detect wallet name from provider
+    if (selectedProvider.isMetaMask) {
       this.walletName = 'MetaMask';
-      
-      // Save connection to localStorage
-      this.saveConnection();
-      
-      // Switch to Sepolia if needed
-      if (network.chainId !== 11155111n) {
-        console.log('🔧 Switching to Sepolia testnet...');
-        try {
+    } else if (selectedProvider.isCoinbaseWallet) {
+      this.walletName = 'Coinbase Wallet';
+    } else if (selectedProvider.isTrust) {
+      this.walletName = 'Trust Wallet';
+    } else if (selectedProvider.isRabby) {
+      this.walletName = 'Rabby';
+    } else if (selectedProvider.isBraveWallet) {
+      this.walletName = 'Brave Wallet';
+    } else if (selectedProvider === window.evmAsk) {
+      this.walletName = 'EVM Ask';
+    } else if (selectedProvider === window.okxwallet) {
+      this.walletName = 'OKX Wallet';
+    } else if (selectedProvider === window.phantom?.ethereum) {
+      this.walletName = 'Phantom';
+    } else {
+      this.walletName = 'EVM Wallet';
+    }
+
+    this.isConnected = true;
+    this.address = address;
+    this.saveConnection();
+
+    if (network.chainId !== 11155111n) {
+      try {
+        await selectedProvider.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0xaa36a7' }]
+        });
+      } catch (switchError: any) {
+        if (switchError.code === 4902) {
           await selectedProvider.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: '0xaa36a7' }], // Sepolia chain ID
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: '0xaa36a7',
+              chainName: 'Sepolia Testnet',
+              nativeCurrency: {
+                name: 'Sepolia ETH',
+                symbol: 'ETH',
+                decimals: 18
+              },
+              rpcUrls: ['https://ethereum-sepolia.publicnode.com'],
+              blockExplorerUrls: ['https://sepolia.etherscan.io']
+            }]
           });
-          console.log('✅ Switched to Sepolia');
-        } catch (error: any) {
-          if (error.code === 4902) {
-            console.log('⚠️ Sepolia not found in wallet, trying to add it...');
-            // Network not added, try to add it
-            try {
-              await selectedProvider.request({
-                method: 'wallet_addEthereumChain',
-                params: [{
-                  chainId: '0xaa36a7',
-                  chainName: 'Sepolia Testnet',
-                  nativeCurrency: {
-                    name: 'Sepolia ETH',
-                    symbol: 'ETH',
-                    decimals: 18
-                  },
-                  rpcUrls: ['https://ethereum-sepolia.publicnode.com'],
-                  blockExplorerUrls: ['https://sepolia.etherscan.io']
-                }]
-              });
-              console.log('✅ Sepolia added to wallet');
-            } catch (addError) {
-              console.log('⚠️ Could not add Sepolia:', addError);
-            }
-          } else {
-            console.log('⚠️ Could not switch to Sepolia:', error);
-          }
+        } else {
+          throw switchError;
         }
       }
-      
-    } catch (error) {
-      console.error('❌ Wallet service initialization failed:', error);
-      throw error;
     }
+  }
+
+  disconnect() {
+    this.provider = null;
+    this.signer = null;
+    this.isConnected = false;
+    this.address = '';
+    this.walletName = '';
+    localStorage.removeItem(this.STORAGE_KEY);
+    // Clear encryption key cache for security
+    clearEncryptionKeyCache();
+    // Silent disconnect - no console output (production-safe)
   }
 
   getProvider() {
@@ -306,17 +297,7 @@ export class SimpleWalletService {
   isWalletConnected() {
     return this.isConnected;
   }
-
-  disconnect() {
-    this.provider = null;
-    this.signer = null;
-    this.isConnected = false;
-    this.address = '';
-    this.walletName = '';
-    localStorage.removeItem(this.STORAGE_KEY);
-    console.log('🔌 Wallet disconnected and localStorage cleared');
-  }
 }
 
-// Create singleton instance
 export const simpleWalletService = new SimpleWalletService();
+

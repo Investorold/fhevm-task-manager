@@ -8,6 +8,36 @@
     <title>FHEVM Task Manager</title>
     <!-- Zama FHEVM SDK from official CDN -->
     <script src="https://cdn.zama.org/relayer-sdk-js/0.2.0/relayer-sdk-js.umd.cjs" type="text/javascript"></script>
+    <script>
+      // Ensure FHEVM SDK is properly exposed after CDN loads
+      window.addEventListener('load', function() {
+        // Check if SDK loaded and expose it properly
+        if (typeof window.RelayerSDK !== 'undefined') {
+          window.fhevm = window.RelayerSDK;
+          console.log('✅ FHEVM SDK exposed from RelayerSDK');
+        } else if (typeof window.relayerSDK !== 'undefined') {
+          window.fhevm = window.relayerSDK;
+          console.log('✅ FHEVM SDK exposed from relayerSDK');
+        } else {
+          // Try to find it in global scope
+          const possibleNames = ['RelayerSDK', 'relayerSDK', 'fhevm', 'FHEVM', 'ZamaRelayerSDK'];
+          for (const name of possibleNames) {
+            if (typeof window[name] !== 'undefined' && window[name].initSDK) {
+              window.fhevm = window[name];
+              console.log(`✅ FHEVM SDK exposed from ${name}`);
+              break;
+            }
+          }
+        }
+        
+        // Log what's available
+        if (window.fhevm) {
+          console.log('✅ FHEVM SDK available:', typeof window.fhevm.initSDK);
+        } else {
+          console.warn('⚠️ FHEVM SDK not found in window object. Available globals:', Object.keys(window).filter(k => k.toLowerCase().includes('relayer') || k.toLowerCase().includes('fhevm')));
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -12,7 +12,7 @@ export const CONTRACT_CONFIG = {
   NETWORK: {
     name: 'Sepolia', // Sepolia testnet
     chainId: 11155111, // Sepolia chain ID
-    rpcUrl: 'https://ethereum-sepolia.publicnode.com', // Sepolia RPC URL
+    rpcUrl: 'https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161', // Sepolia RPC URL (Infura)
   },
   
   // FHEVM Configuration for Sepolia
