@@ -75,8 +75,8 @@ class SimpleWalletService {
   }
 
   async loadPersistedConnection(retryCount = 0): Promise<boolean> {
-    const MAX_RETRIES = 5;
-    const RETRY_DELAY = 500; // 500ms between retries
+    const MAX_RETRIES = 8;
+    const RETRY_DELAY = 400; // 400ms between retries (total ~3.2s before fallback)
 
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
@@ -134,8 +134,21 @@ class SimpleWalletService {
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
           return this.loadPersistedConnection(retryCount + 1);
         }
-        secureLogger.debug('Wallet locked or not connected, keeping storage for retry');
-        return false;
+
+        // After retries, try eth_requestAccounts as fallback (will show popup if needed)
+        secureLogger.debug('Trying eth_requestAccounts as fallback...');
+        try {
+          accounts = await selectedProvider.request({ method: 'eth_requestAccounts' });
+          if (!accounts || accounts.length === 0) {
+            secureLogger.debug('eth_requestAccounts also returned empty');
+            return false;
+          }
+          secureLogger.debug('Successfully reconnected via eth_requestAccounts');
+        } catch (reqError: any) {
+          // User might have rejected the popup, or wallet is truly locked
+          secureLogger.debug('eth_requestAccounts failed:', reqError?.message);
+          return false;
+        }
       }
       
       if (accounts[0].toLowerCase() !== address.toLowerCase()) {

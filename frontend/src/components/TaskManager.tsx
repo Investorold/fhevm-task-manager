@@ -1353,11 +1353,10 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
         deletedTasks[deletingTask.id] = 'DELETED';
         storage.setItem('deletedTasks', JSON.stringify(deletedTasks));
         
-        // Remove from UI
+        // Remove from UI - only from tasks (received tasks handled earlier at line 1300)
         setTasks(prev => prev.filter(task => task.id !== deletingTask.id));
-        setReceivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
         setArchivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
-        
+
         console.log('✅ Demo: Task deleted from sessionStorage');
         setDeletingTask(null);
         
@@ -1402,10 +1401,9 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
         deletedTasks[deletingTask.id] = 'DELETED';
         localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
         
-        // Now remove from UI AFTER localStorage is updated
+        // Now remove from UI AFTER localStorage is updated - only from tasks (received handled earlier)
         setTasks(prev => prev.filter(task => task.id !== deletingTask.id));
-        setReceivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
-        
+
         console.log('✅ Plain text: Task deleted from localStorage and UI');
         setDeletingTask(null);
         
@@ -1453,10 +1451,9 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
           deletedTasks[deletingTask.id] = 'DELETED';
           localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
           
-          // NOW remove from UI after successful blockchain transaction
+          // NOW remove from UI after successful blockchain transaction - only from tasks (received handled earlier)
           setTasks(prev => prev.filter(task => task.id !== deletingTask.id));
-          setReceivedTasks(prev => prev.filter(task => task.id !== deletingTask.id));
-          
+
           console.log('✅ Encrypted task: Deleted from blockchain, localStorage, and UI');
           
           // Show success notification
