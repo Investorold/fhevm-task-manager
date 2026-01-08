@@ -8,7 +8,6 @@ import { realContractService } from './services/realContractService';
 import { simpleWalletService } from './services/simpleWalletService';
 import { fhevmService } from './services/fhevmService';
 import { getContractAddress } from './config/contract';
-import { preDeriveEncryptionKey } from './utils/clientEncryption';
 
 function App() {
   const [walletConnected, setWalletConnected] = useState(false);
@@ -101,20 +100,6 @@ function App() {
       };
 
       initFHEVM();
-
-      // Pre-derive encryption key immediately after wallet connection
-      // This ensures encrypt/decrypt operations are instant (no popup needed)
-      const preDeriveKey = async () => {
-        if (!isDemoMode) {
-          const signer = simpleWalletService.getSigner();
-          if (signer) {
-            console.log('🔑 Pre-deriving encryption key...');
-            await preDeriveEncryptionKey(signer);
-          }
-        }
-      };
-
-      preDeriveKey();
     }
   }, [walletConnected, contractAddress, isDemoMode]);
 
