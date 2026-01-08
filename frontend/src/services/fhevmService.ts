@@ -759,7 +759,7 @@ class FhevmService {
         // Fallback config uses .org endpoints (Zama migration complete)
         const forcedConfig = typeof window !== 'undefined' ? (window as any).__ZAMA_FORCE_GATEWAY_CONFIG : null;
         const fallbackConfig = {
-          gatewayUrl: forcedConfig?.gatewayUrl || 'https://gateway.testnet.zama.org', // Updated to .org
+          gatewayUrl: forcedConfig?.gatewayUrl || 'https://relayer.testnet.zama.org', // Updated to .org
           gatewayChainId: forcedConfig?.gatewayChainId || 10901,
           chainId: forcedConfig?.chainId || 11155111,
           relayerUrl: forcedConfig?.relayerUrl || 'https://relayer.testnet.zama.org',
@@ -811,7 +811,7 @@ class FhevmService {
           `1. Check https://status.zama.org for "Coprocessor - Testnet" status\n` +
           `2. Wait 5-10 minutes if coprocessor is down, then refresh page\n` +
           `3. Run diagnostic: fetch("/key-fetch-diagnostic.js").then(r=>r.text()).then(eval)\n` +
-          `4. Check Network tab for failed requests to gateway.testnet.zama.org/v1/keyurl\n\n` +
+          `4. Check Network tab for failed requests to relayer.testnet.zama.org/v1/keyurl\n\n` +
           `Technical error: ${rawMessage}`;
       }
 

@@ -1,10 +1,10 @@
 /**
  * Gateway Failover System for FHEVM - Task Manager
- * 
- * Handles automatic failover between gateway endpoints:
- * 1. Try gateway.testnet.zama.org (primary, Zama migrated to .org)
- * 2. Fallback to gateway.testnet.zama.ai (legacy endpoint)
- * 
+ *
+ * NOTE: As of Jan 2026, Zama merged gateway functionality into the relayer.
+ * The gateway.testnet.zama.org domain no longer exists.
+ * Use relayer.testnet.zama.org which serves the same /v1/keyurl endpoint.
+ *
  * Includes health checks, smart retries, and exponential backoff.
  */
 
@@ -29,17 +29,10 @@ export interface GatewayHealthCheck {
 export class GatewayFailover {
   private endpoints: GatewayEndpoint[] = [
     {
-      url: 'https://gateway.testnet.zama.org',
-      name: 'Gateway (.org)',
+      url: 'https://relayer.testnet.zama.org',
+      name: 'Relayer (primary)',
       priority: 1,
-      isHealthy: true, // Primary endpoint (Zama migrated to .org)
-      errorCount: 0
-    },
-    {
-      url: 'https://gateway.testnet.zama.ai',
-      name: 'Gateway (.ai)',
-      priority: 2,
-      isHealthy: false, // Legacy endpoint (fallback only)
+      isHealthy: true,
       errorCount: 0
     }
   ];
@@ -180,7 +173,7 @@ export class GatewayFailover {
    */
   async getGatewayUrl(): Promise<string> {
     const endpoint = await this.findHealthyEndpoint();
-    return endpoint?.url || 'https://gateway.testnet.zama.org'; // Ultimate fallback to .org
+    return endpoint?.url || 'https://relayer.testnet.zama.org';
   }
 
   /**
