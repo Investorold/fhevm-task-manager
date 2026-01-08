@@ -851,7 +851,7 @@ class FhevmService {
     // Check for SDK loaded from script tag (UMD build)
     const sdk = (window as any).RelayerSDK || (window as any).relayerSDK || (window as any).fhevm;
     if (sdk && typeof sdk.createInstance === 'function') {
-      secureLogger.debug('[FHEVM] ✅ SDK v0.2.0 found from script tag');
+      secureLogger.debug('[FHEVM] ✅ SDK v0.3.0-8 found from script tag');
       const module: FhevmModule = {
         initSDK: sdk.initSDK || (() => Promise.resolve()),
         createInstance: sdk.createInstance.bind(sdk)
@@ -866,7 +866,7 @@ class FhevmService {
     while (Date.now() - waitStart < 3000) {
       const sdk = (window as any).RelayerSDK || (window as any).relayerSDK || (window as any).fhevm;
       if (sdk && typeof sdk.createInstance === 'function') {
-        secureLogger.debug('[FHEVM] ✅ SDK v0.2.0 loaded from script tag');
+        secureLogger.debug('[FHEVM] ✅ SDK v0.3.0-8 loaded from script tag');
         const module: FhevmModule = {
           initSDK: sdk.initSDK || (() => Promise.resolve()),
           createInstance: sdk.createInstance.bind(sdk)
@@ -877,11 +877,11 @@ class FhevmService {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Fallback: Try dynamic import of UMD build (v0.2.0 to match deployed contract)
+    // Fallback: Try dynamic import of UMD build (v0.3.0-8 - latest per docs.zama.org)
     secureLogger.warn('[FHEVM] Script tag not loaded, trying dynamic import...');
-    const cdnUrl = 'https://cdn.zama.org/relayer-sdk-js/0.2.0/relayer-sdk-js.umd.cjs';
+    const cdnUrl = 'https://cdn.zama.org/relayer-sdk-js/0.3.0-8/relayer-sdk-js.umd.cjs';
     try {
-      secureLogger.debug('[FHEVM] Loading SDK v0.2.0 from CDN:', cdnUrl);
+      secureLogger.debug('[FHEVM] Loading SDK v0.3.0-8 from CDN:', cdnUrl);
       // For UMD builds, we need to load via script tag injection
       await new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
@@ -899,7 +899,7 @@ class FhevmService {
           createInstance: sdk.createInstance.bind(sdk)
         };
         window.fhevm = module;
-        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK v0.2.0 from CDN');
+        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK v0.3.0-8 from CDN');
         return module;
       }
     } catch (cdnError) {
