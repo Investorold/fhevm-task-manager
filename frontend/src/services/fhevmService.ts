@@ -841,45 +841,7 @@ class FhevmService {
       delete (window as any).zama;
       delete (window as any).__relayer_sdk__;
     }
-    
-    // Wait for SDK to load from script tag - check window.relayerSDK or window.RelayerSDK
-    const waitForSDK = (): Promise<FhevmModule> => {
-      return new Promise((resolve, reject) => {
-        const maxAttempts = 50; // 5 seconds max wait (50 * 100ms)
-        let attempts = 0;
-        
-        const checkSDK = () => {
-          attempts++;
-          
-          // Check for SDK on window object (multiple possible names)
-          const sdk = (window as any).relayerSDK || (window as any).RelayerSDK || (window as any).fhevm;
-          
-          if (sdk && typeof sdk.createInstance === 'function') {
-            secureLogger.debug('[FHEVM] ✅ SDK found on window object');
-            // Ensure initSDK is available (might be on the SDK object or as a separate function)
-            const module: FhevmModule = {
-              initSDK: sdk.initSDK || (() => Promise.resolve()),
-              createInstance: sdk.createInstance.bind(sdk)
-            };
-            window.fhevm = module;
-            resolve(module);
-            return;
-          }
-          
-          if (attempts >= maxAttempts) {
-            reject(new Error('SDK did not load from script tag after 5 seconds. Check that the script tag in index.html is correct.'));
-            return;
-          }
-          
-          // Check again in 100ms
-          setTimeout(checkSDK, 100);
-        };
-        
-        // Start checking immediately
-        checkSDK();
-      });
-    };
-    
+
     // Check for existing cached module (but only if not forcing reload)
     if (window.fhevm && typeof window.fhevm.initSDK === 'function' && !forceReload) {
       secureLogger.debug('[FHEVM] Using cached SDK module');
@@ -891,27 +853,23 @@ class FhevmService {
       secureLogger.warn('[FHEVM] ⚠️ Multiple SDK instances detected on window object. This may cause handle mismatches.');
     }
 
-    // Wait for SDK to load from script tag
-    try {
-      secureLogger.debug('[FHEVM] Waiting for SDK to load from script tag...');
-      const sdkModule = await waitForSDK();
-      secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK from script tag');
-      return sdkModule;
-    } catch (scriptTagError) {
-      secureLogger.warn('[FHEVM] Failed to load SDK from script tag, trying dynamic import fallback:', scriptTagError);
-    }
-
-    // Fallback to dynamic import if script tag loading fails
+    // Load SDK from CDN via dynamic import (ES module)
     const cdnUrl = 'https://cdn.zama.org/relayer-sdk-js/0.3.0-6/relayer-sdk-js.js';
     try {
-      secureLogger.debug('[FHEVM] Loading SDK from CDN (fallback):', cdnUrl);
+      secureLogger.debug('[FHEVM] Loading SDK from CDN:', cdnUrl);
       const cdnUrlToLoad = forceReload ? `${cdnUrl}?v=${Date.now()}` : cdnUrl;
       // @ts-ignore - CDN bundle has no types
       const cdnModule = await import(/* @vite-ignore */ cdnUrlToLoad);
       if (cdnModule && typeof cdnModule.initSDK === 'function') {
         window.fhevm = cdnModule;
-        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK from CDN (fallback)');
+        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK v0.3.0-6 from CDN');
         return cdnModule;
+      }
+      // Check if SDK exports differently (e.g., default export)
+      if (cdnModule.default && typeof cdnModule.default.initSDK === 'function') {
+        window.fhevm = cdnModule.default;
+        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK v0.3.0-6 from CDN (default export)');
+        return cdnModule.default;
       }
     } catch (cdnError) {
       secureLogger.warn('[FHEVM] Failed to load SDK from CDN, trying local bundle:', cdnError);
@@ -935,7 +893,7 @@ class FhevmService {
       secureLogger.warn('[FHEVM] Failed to load local bundle:', error);
     }
 
-    throw new Error('Could not load FHEVM SDK module. Tried script tag, CDN (cdn.zama.org), and local bundle. Check console for details.');
+    throw new Error('Could not load FHEVM SDK module. Tried CDN (cdn.zama.org) and local bundle. Check console for details.');
   }
 }
 

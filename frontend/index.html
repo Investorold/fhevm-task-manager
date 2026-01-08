@@ -6,48 +6,17 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FHEVM Task Manager</title>
-    <!-- Zama FHEVM SDK from official CDN - version 0.3.0-6 -->
-    <script src="https://cdn.zama.org/relayer-sdk-js/0.3.0-6/relayer-sdk-js.js" type="text/javascript"></script>
     <!-- HARD OVERRIDE - Must be set before SDK initializes to prevent stale defaults -->
     <script>
       // Override stale defaults in SDK bundle before it loads
+      // SDK will be loaded dynamically by fhevmService.ts via import()
       window.__ZAMA_FORCE_GATEWAY_CONFIG = {
         gatewayUrl: "https://relayer.testnet.zama.org", // Zama merged gateway into relayer (Jan 2026)
         gatewayChainId: 10901, // CRITICAL: Must be 10901 (not 55815)
         chainId: 11155111, // Sepolia
         relayerUrl: "https://relayer.testnet.zama.org"
       };
-      console.log('[FHEVM Early Override] Config set:', window.__ZAMA_FORCE_GATEWAY_CONFIG);
-    </script>
-    <script>
-      // Ensure FHEVM SDK is properly exposed after CDN loads
-      window.addEventListener('load', function() {
-        // Check if SDK loaded and expose it properly
-        if (typeof window.RelayerSDK !== 'undefined') {
-          window.fhevm = window.RelayerSDK;
-          console.log('✅ FHEVM SDK v0.3.0-6 exposed from RelayerSDK');
-        } else if (typeof window.relayerSDK !== 'undefined') {
-          window.fhevm = window.relayerSDK;
-          console.log('✅ FHEVM SDK v0.3.0-6 exposed from relayerSDK');
-        } else {
-          // Try to find it in global scope
-          const possibleNames = ['RelayerSDK', 'relayerSDK', 'fhevm', 'FHEVM', 'ZamaRelayerSDK'];
-          for (const name of possibleNames) {
-            if (typeof window[name] !== 'undefined' && window[name].initSDK) {
-              window.fhevm = window[name];
-              console.log(`✅ FHEVM SDK v0.3.0-6 exposed from ${name}`);
-              break;
-            }
-          }
-        }
-
-        // Log what's available
-        if (window.fhevm) {
-          console.log('✅ FHEVM SDK ready:', typeof window.fhevm.initSDK);
-        } else {
-          console.warn('⚠️ FHEVM SDK not found in window object. Available globals:', Object.keys(window).filter(k => k.toLowerCase().includes('relayer') || k.toLowerCase().includes('fhevm')));
-        }
-      });
+      console.log('[FHEVM] Gateway config set:', window.__ZAMA_FORCE_GATEWAY_CONFIG);
     </script>
   </head>
   <body>
