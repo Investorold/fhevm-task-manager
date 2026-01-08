@@ -464,63 +464,23 @@ class RealContractService {
       const userAddress = await signer.getAddress();
       console.log('👤 User address for access control:', userAddress);
       
-      // Encrypt with retry logic to handle network/SSL errors
+      // Encrypt task data (single attempt - if it fails, it fails)
       let combinedResult;
-      let retryCount = 0;
-      const maxRetries = 3;
-      
-      while (retryCount < maxRetries) {
-        try {
-          // Get the global FHEVM instance
-          const fhevmInstance = fhevmService.getInstance();
-          
-          // Create encrypted input using the global public key with user address for access control
-          const combinedInput = fhevmInstance.createEncryptedInput(this.contractAddress, userAddress);
-          
-          // Add the data to encrypt
-          combinedInput.add64(titleAsNumber);      // Title as 64-bit
-          combinedInput.add64(dueDateTimestamp);   // Due date as 64-bit  
-          combinedInput.add8(priority);           // Priority as 8-bit
-          
-          // Encrypt using the global public key
-          // NOTE: This contacts the Zama FHEVM relayer and may require signing + take 3-10 seconds
-          if (retryCount === 0) {
-            console.log('🔐 Contacting Zama FHEVM relayer for encryption (may require signing approval)...');
-          } else {
-            console.log(`🔄 Encryption retry attempt ${retryCount + 1}/${maxRetries}...`);
-          }
-          
-          combinedResult = await combinedInput.encrypt();
-          
-          console.log('✅ Encryption successful with global FHE key');
-          console.log('🔍 Combined encrypted input:', combinedResult);
-          break; // Success, exit retry loop
-          
-        } catch (encryptError: any) {
-          retryCount++;
-          const errorMessage = encryptError?.message || String(encryptError);
-          console.error(`❌ Encryption attempt ${retryCount} failed:`, errorMessage);
-          
-          // Check if it's an SSL/network error
-          const isSSLError = errorMessage.includes('SSL') || 
-                            errorMessage.includes('ERR_SSL') ||
-                            errorMessage.includes('net::ERR') ||
-                            errorMessage.includes('network') ||
-                            errorMessage.includes('fetch');
-          
-          if (retryCount >= maxRetries) {
-            if (isSSLError) {
-              throw new Error(`SSL/Network error: The Zama FHEVM relayer is experiencing connection issues. This is usually temporary. Please wait a moment and try again. If the problem persists, the relayer may be down for maintenance.`);
-            } else {
-              throw new Error(`Failed to encrypt data after ${maxRetries} attempts. The FHEVM relayer may be experiencing issues. Please try again in a few minutes. Error: ${errorMessage}`);
-            }
-          }
-          
-          // Wait before retry (exponential backoff: 1s, 2s, 4s)
-          const waitTime = Math.pow(2, retryCount - 1) * 1000;
-          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
+      try {
+        const fhevmInstance = fhevmService.getInstance();
+        const combinedInput = fhevmInstance.createEncryptedInput(this.contractAddress, userAddress);
+
+        combinedInput.add64(titleAsNumber);      // Title as 64-bit
+        combinedInput.add64(dueDateTimestamp);   // Due date as 64-bit
+        combinedInput.add8(priority);           // Priority as 8-bit
+
+        console.log('🔐 Encrypting task data...');
+        combinedResult = await combinedInput.encrypt();
+        console.log('✅ Encryption successful');
+      } catch (encryptError: any) {
+        const errorMessage = encryptError?.message || String(encryptError);
+        console.error('❌ Encryption failed:', errorMessage);
+        throw new Error(`Encryption failed: ${errorMessage}`);
       }
       
       // Use ethers.js contract with the correct ABI
@@ -677,39 +637,21 @@ class RealContractService {
         priority 
       });
 
-      // Try to create encrypted input with retry logic
+      // Encrypt text task data (single attempt)
       let combinedResult;
-      let retryCount = 0;
-        const maxRetries = 1; // Reduced from 2 to 1 for faster UX
-      
-      while (retryCount < maxRetries) {
-        try {
-          console.log(`🔐 Text encryption attempt ${retryCount + 1}/${maxRetries}...`);
-          
-          // Create a combined encrypted input for all four values
-          const combinedInput = fhevmService.getInstance().createEncryptedInput(this.contractAddress, userAddress);
-          combinedInput.add64(titleAsNumber);        // Add title as 64-bit
-          combinedInput.add64(descriptionAsNumber);  // Add description as 64-bit
-          combinedInput.add64(dueDateTimestamp);     // Add due date as 64-bit  
-          combinedInput.add8(priority);             // Add priority as 8-bit
-          combinedResult = await combinedInput.encrypt();
-          
-          console.log('✅ Text encryption successful on attempt', retryCount + 1);
-          break;
-          
-        } catch (encryptError) {
-          retryCount++;
-          console.error(`❌ Text encryption attempt ${retryCount} failed:`, encryptError);
-          
-          if (retryCount >= maxRetries) {
-            throw new Error(`Failed to encrypt text data after ${maxRetries} attempts. The FHEVM relayer may be experiencing issues. Please try again in a few minutes.`);
-          }
-          
-          // Wait before retry (exponential backoff)
-          const waitTime = 200 * retryCount; // Reduced from 500ms to 200ms for faster UX
-          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
+      try {
+        console.log('🔐 Encrypting text task data...');
+        const combinedInput = fhevmService.getInstance().createEncryptedInput(this.contractAddress, userAddress);
+        combinedInput.add64(titleAsNumber);
+        combinedInput.add64(descriptionAsNumber);
+        combinedInput.add64(dueDateTimestamp);
+        combinedInput.add8(priority);
+        combinedResult = await combinedInput.encrypt();
+        console.log('✅ Text encryption successful');
+      } catch (encryptError: any) {
+        const errorMessage = encryptError?.message || String(encryptError);
+        console.error('❌ Text encryption failed:', errorMessage);
+        throw new Error(`Text encryption failed: ${errorMessage}`);
       }
 
       console.log('🔍 Combined encrypted text input:', combinedResult);
@@ -859,39 +801,21 @@ class RealContractService {
       
       console.log('✅ Task data converted to numeric format');
 
-      // Try to create encrypted input with retry logic
+      // Encrypt numeric task data (single attempt)
       let combinedResult;
-      let retryCount = 0;
-        const maxRetries = 1; // Reduced from 2 to 1 for faster UX
-      
-      while (retryCount < maxRetries) {
-        try {
-          console.log(`🔐 Numeric encryption attempt ${retryCount + 1}/${maxRetries}...`);
-          
-          // Create a combined encrypted input for all four values
-          const combinedInput = fhevmService.getInstance().createEncryptedInput(this.contractAddress, userAddress);
-          combinedInput.add64(titleAsNumber);        // Add title as 64-bit
-          combinedInput.add64(dueDateTimestamp);     // Add due date as 64-bit  
-          combinedInput.add8(priority);             // Add priority as 8-bit
-          combinedInput.add64(numericId);            // Add numeric ID as 64-bit
-          combinedResult = await combinedInput.encrypt();
-          
-          console.log('✅ Numeric encryption successful on attempt', retryCount + 1);
-          break;
-          
-        } catch (encryptError) {
-          retryCount++;
-          console.error(`❌ Numeric encryption attempt ${retryCount} failed:`, encryptError);
-          
-          if (retryCount >= maxRetries) {
-            throw new Error(`Failed to encrypt numeric data after ${maxRetries} attempts. The FHEVM relayer may be experiencing issues. Please try again in a few minutes.`);
-          }
-          
-          // Wait before retry (exponential backoff)
-          const waitTime = 200 * retryCount; // Reduced from 500ms to 200ms for faster UX
-          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
+      try {
+        console.log('🔐 Encrypting numeric task data...');
+        const combinedInput = fhevmService.getInstance().createEncryptedInput(this.contractAddress, userAddress);
+        combinedInput.add64(titleAsNumber);
+        combinedInput.add64(dueDateTimestamp);
+        combinedInput.add8(priority);
+        combinedInput.add64(numericId);
+        combinedResult = await combinedInput.encrypt();
+        console.log('✅ Numeric encryption successful');
+      } catch (encryptError: any) {
+        const errorMessage = encryptError?.message || String(encryptError);
+        console.error('❌ Numeric encryption failed:', errorMessage);
+        throw new Error(`Numeric encryption failed: ${errorMessage}`);
       }
 
       console.log('🔍 Combined encrypted numeric input:', combinedResult);
