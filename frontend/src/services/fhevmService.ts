@@ -447,69 +447,16 @@ class FhevmService {
         secureLogger.debug('[FHEVM] ✅ Selected gateway URL via failover:', selectedGatewayUrl);
       }
       
+      // Per official docs: Use SepoliaConfig directly, only add network
+      // https://docs.zama.org/fhevm-relayer/development/web-applications
       let config: any;
       if (SepoliaConfig && typeof SepoliaConfig === 'object') {
-        secureLogger.debug('[FHEVM] ✅ Using official SepoliaConfig from SDK (ensures handle compatibility)');
-        
-        // CRITICAL: Clone SepoliaConfig so we don't mutate the original
-        config = { ...SepoliaConfig };
-        
-        // 🔥 OVERRIDE CORE FIELDS - Let SDK handle relayerUrl automatically (per Discord guidance)
-        // Use failover-selected gateway URL (with forced config as override)
-        // Priority: forcedConfig (from index.html) > failover system > hardcoded fallback
-        config.gatewayUrl = forcedConfig?.gatewayUrl || selectedGatewayUrl;
-        config.gatewayChainId = forcedConfig?.gatewayChainId || 10901; // CRITICAL: Must be 10901, not 55815
-        config.chainId = forcedConfig?.chainId || 11155111;
-        // WORKAROUND: SDK bundle may have stale .cloud/.ai URLs - override to .org if needed
-        // Per Discord: "SDK already knows the correct URL" - but bundled SDK might be outdated
-        if (forcedConfig?.relayerUrl) {
-          config.relayerUrl = forcedConfig.relayerUrl;
-          secureLogger.debug('[FHEVM] 🔧 Using forced relayerUrl from config:', config.relayerUrl);
-        } else if (config.relayerUrl && (config.relayerUrl.includes('.zama.cloud') || config.relayerUrl.includes('.zama.ai'))) {
-          // SDK bundle has stale URL - fix it automatically
-          config.relayerUrl = 'https://relayer.testnet.zama.org';
-          secureLogger.debug('[FHEVM] 🔧 Fixed stale relayerUrl from SDK bundle (was .cloud/.ai, now .org):', config.relayerUrl);
-        } else {
-          // Explicitly set relayerUrl to ensure consistent behavior
-          config.relayerUrl = config.relayerUrl || 'https://relayer.testnet.zama.org';
-          secureLogger.debug('[FHEVM] ✅ Using relayerUrl:', config.relayerUrl);
-        }
-        config.network = selectedProvider;
-        
-        // Remove fallback fields entirely to prevent SDK internal defaults
-        delete config.relayer;
-        delete config.rpcUrl;
-        
-        // Log config summary (gateway for keys, relayer for encryption/decryption)
-        const gatewayOk = config.gatewayUrl?.includes('.zama.org');
-        const relayerOk = !config.relayerUrl || config.relayerUrl.includes('.zama.org');
-        if (!gatewayOk || !relayerOk) {
-          secureLogger.warn('[FHEVM] Config:', {
-            gatewayUrl: config.gatewayUrl,
-            relayerUrl: config.relayerUrl || '(auto)',
-            note: 'Encryption uses relayer, gateway is for keys'
-          });
-        }
+        secureLogger.debug('[FHEVM] ✅ Using official SepoliaConfig from SDK');
+        config = { ...SepoliaConfig, network: selectedProvider };
+        secureLogger.debug('[FHEVM] Config from SDK:', Object.keys(config));
       } else {
-        secureLogger.debug('[FHEVM] SepoliaConfig not available, using custom config');
-        // Fallback: create minimal config with required fields
-        // Use failover-selected gateway URL (with forced config as override)
-        // Priority: forcedConfig (from index.html) > failover system > hardcoded fallback
-        const forcedConfig = typeof window !== 'undefined' ? (window as any).__ZAMA_FORCE_GATEWAY_CONFIG : null;
-        config = {
-          gatewayUrl: forcedConfig?.gatewayUrl || selectedGatewayUrl,
-          gatewayChainId: forcedConfig?.gatewayChainId || 10901,
-          chainId: forcedConfig?.chainId || 11155111,
-          // Only set relayerUrl if explicitly forced - otherwise SDK will auto-detect
-          ...(forcedConfig?.relayerUrl && { relayerUrl: forcedConfig.relayerUrl }),
-        network: selectedProvider,
-          // MUST match @fhevm/solidity ZamaConfig.sol addresses
-          aclContractAddress: '0x687820221192C5B662b25367F70076A37bc79b6c',
-          kmsContractAddress: '0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC',
-          coprocessorAddress: '0x848B0066793BcC60346Da1F49049357399B8D595',
-          verifyingContractAddressDecryption: '0xa02Cda4Ca3a71D7C46997716F4283aa851C28812',
-          decryptionOracleAddress: '0xa02Cda4Ca3a71D7C46997716F4283aa851C28812'
-        };
+        secureLogger.debug('[FHEVM] SepoliaConfig not available, using minimal config');
+        config = { network: selectedProvider };
       }
 
       if (selectedProvider && selectedProvider.chainId) {
