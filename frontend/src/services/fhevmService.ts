@@ -419,10 +419,10 @@ class FhevmService {
 
       await initSDK();
 
-      // 🔥 CRITICAL: Clone and mutate SepoliaConfig IN-PLACE (per Zama GPT guidance)
-      // This ensures the SDK receives the exact config we intend, not defaults
-      // @ts-ignore - SepoliaConfig may not be in types but exists in runtime
-      const SepoliaConfig = (sdkModule as any).SepoliaConfig;
+      // Get SepoliaConfig from the global SDK (UMD build exposes it on window)
+      const sdk = (window as any).RelayerSDK || (window as any).relayerSDK;
+      const SepoliaConfig = sdk?.SepoliaConfig;
+      secureLogger.debug('[FHEVM] SepoliaConfig available:', !!SepoliaConfig);
       
       // HARD OVERRIDE: Check for early override set in index.html (defeats stale SDK defaults)
       const forcedConfig = typeof window !== 'undefined' ? (window as any).__ZAMA_FORCE_GATEWAY_CONFIG : null;
@@ -453,10 +453,22 @@ class FhevmService {
       if (SepoliaConfig && typeof SepoliaConfig === 'object') {
         secureLogger.debug('[FHEVM] ✅ Using official SepoliaConfig from SDK');
         config = { ...SepoliaConfig, network: selectedProvider };
-        secureLogger.debug('[FHEVM] Config from SDK:', Object.keys(config));
+        secureLogger.debug('[FHEVM] Config keys:', Object.keys(config));
       } else {
-        secureLogger.debug('[FHEVM] SepoliaConfig not available, using minimal config');
-        config = { network: selectedProvider };
+        // Fallback: Manual config matching @fhevm/solidity ZamaConfig.sol
+        secureLogger.debug('[FHEVM] SepoliaConfig not found, using manual config');
+        config = {
+          network: selectedProvider,
+          chainId: 11155111,
+          gatewayChainId: 10901,
+          relayerUrl: 'https://relayer.testnet.zama.org',
+          gatewayUrl: 'https://relayer.testnet.zama.org',
+          // Addresses from @fhevm/solidity ZamaConfig.sol
+          aclContractAddress: '0x687820221192C5B662b25367F70076A37bc79b6c',
+          kmsContractAddress: '0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC',
+          coprocessorAddress: '0x848B0066793BcC60346Da1F49049357399B8D595',
+          verifyingContractAddressDecryption: '0xa02Cda4Ca3a71D7C46997716F4283aa851C28812',
+        };
       }
 
       if (selectedProvider && selectedProvider.chainId) {
