@@ -75,13 +75,13 @@ class SimpleWalletService {
   }
 
   async loadPersistedConnection(retryCount = 0): Promise<boolean> {
-    const MAX_RETRIES = 8;
-    const RETRY_DELAY = 400; // 400ms between retries (total ~3.2s before fallback)
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 200; // Fast retries
 
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
       if (!stored) {
-        secureLogger.debug('No stored wallet connection found');
+        console.log('[Wallet] No stored connection');
         return false;
       }
 
@@ -89,66 +89,48 @@ class SimpleWalletService {
       const timeSinceLastActivity = Date.now() - timestamp;
 
       if (timeSinceLastActivity > this.INACTIVITY_TIMEOUT) {
-        secureLogger.debug(`Wallet connection expired (${Math.round(timeSinceLastActivity / (60 * 60 * 1000))} hours old)`);
+        console.log('[Wallet] Connection expired');
         localStorage.removeItem(this.STORAGE_KEY);
         return false;
       }
 
-      // Try to reconnect - use __selectedProvider first (more stable)
-      let selectedProvider = (window as any).__selectedProvider || window.ethereum;
+      // Get provider quickly
+      let selectedProvider = this.selectProvider();
 
-      // Wait for wallet extension to initialize if not ready
+      // Quick retry if provider not ready
       if (!selectedProvider && retryCount < MAX_RETRIES) {
-        secureLogger.debug(`Wallet provider not ready, retry ${retryCount + 1}/${MAX_RETRIES}...`);
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         return this.loadPersistedConnection(retryCount + 1);
       }
 
       if (!selectedProvider) {
-        secureLogger.debug('No wallet provider available for restore after retries');
+        console.log('[Wallet] No provider available');
         return false;
       }
 
       this.provider = new ethers.BrowserProvider(selectedProvider);
 
-      // Check if wallet is still connected
-      // Use try-catch for eth_accounts as it may fail if wallet is locked
+      // Try eth_accounts first (silent check)
       let accounts: string[] = [];
       try {
         accounts = await selectedProvider.request({ method: 'eth_accounts' });
       } catch (e) {
-        // Wallet might be locked - retry a few times
-        if (retryCount < MAX_RETRIES) {
-          secureLogger.debug(`Wallet may be locked, retry ${retryCount + 1}/${MAX_RETRIES}...`);
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-          return this.loadPersistedConnection(retryCount + 1);
+        console.log('[Wallet] eth_accounts failed, trying requestAccounts');
+      }
+
+      // If no accounts, immediately try eth_requestAccounts (shows popup)
+      if (!accounts || accounts.length === 0) {
+        console.log('[Wallet] No accounts, requesting access...');
+        try {
+          accounts = await selectedProvider.request({ method: 'eth_requestAccounts' });
+        } catch (reqError: any) {
+          console.log('[Wallet] User rejected or wallet locked');
+          return false;
         }
-        secureLogger.debug('Wallet may be locked, will retry on unlock');
-        return false;
       }
 
       if (!accounts || accounts.length === 0) {
-        // Wallet is locked or not connected - retry a few times (extension might still be loading)
-        if (retryCount < MAX_RETRIES) {
-          secureLogger.debug(`No accounts yet, retry ${retryCount + 1}/${MAX_RETRIES}...`);
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-          return this.loadPersistedConnection(retryCount + 1);
-        }
-
-        // After retries, try eth_requestAccounts as fallback (will show popup if needed)
-        secureLogger.debug('Trying eth_requestAccounts as fallback...');
-        try {
-          accounts = await selectedProvider.request({ method: 'eth_requestAccounts' });
-          if (!accounts || accounts.length === 0) {
-            secureLogger.debug('eth_requestAccounts also returned empty');
-            return false;
-          }
-          secureLogger.debug('Successfully reconnected via eth_requestAccounts');
-        } catch (reqError: any) {
-          // User might have rejected the popup, or wallet is truly locked
-          secureLogger.debug('eth_requestAccounts failed:', reqError?.message);
-          return false;
-        }
+        return false;
       }
       
       if (accounts[0].toLowerCase() !== address.toLowerCase()) {

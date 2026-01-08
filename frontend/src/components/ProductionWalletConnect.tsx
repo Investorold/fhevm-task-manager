@@ -416,8 +416,8 @@ export function ProductionWalletConnect() {
 
       {/* Wallet Selection */}
       <div className="space-y-3 mb-6">
-        {/* Show wallet selector if multiple wallets detected */}
-        {availableWallets.length > 1 && (
+        {/* Always show wallet selector if wallets detected */}
+        {availableWallets.length >= 1 && (
           <div className="relative">
             <button
               onClick={() => setIsOpen(!isOpen)}

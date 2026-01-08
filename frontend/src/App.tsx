@@ -36,30 +36,16 @@ function App() {
 
     restoreConnection();
 
-    // Check wallet connection status periodically
+    // Check wallet connection status periodically (silent check)
     const checkWalletConnection = () => {
       const connected = simpleWalletService.isWalletConnected();
       const address = simpleWalletService.getAddress();
-      
-      console.log('🔍 Wallet check:', { connected, address });
-      console.log('🔍 Window.ethereum available:', !!window.ethereum);
-      console.log('🔍 SimpleWalletService state:', {
-        isConnected: simpleWalletService.isWalletConnected(),
-        address: simpleWalletService.getAddress(),
-        provider: !!simpleWalletService.getProvider(),
-        signer: !!simpleWalletService.getSigner()
-      });
-      
       setWalletConnected(connected);
       setWalletAddress(address);
-      
-      if (connected) {
-        console.log('✅ Wallet is connected:', address);
-      }
     };
 
-    // Check every 2 seconds
-    const interval = setInterval(checkWalletConnection, 2000);
+    // Check every 3 seconds (reduced frequency)
+    const interval = setInterval(checkWalletConnection, 3000);
 
     return () => {
       clearInterval(interval);

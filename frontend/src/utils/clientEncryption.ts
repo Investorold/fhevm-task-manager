@@ -24,17 +24,22 @@ const keyCache: Map<string, CryptoKey> = new Map();
  * Derives an AES-256-GCM encryption key from the user's wallet signature
  */
 export async function deriveEncryptionKey(signer: ethers.Signer): Promise<CryptoKey> {
+  console.log('[Encryption] Starting key derivation...');
+
   const address = await signer.getAddress();
   const cacheKey = address.toLowerCase();
 
   // Return cached key if available
   if (keyCache.has(cacheKey)) {
+    console.log('[Encryption] Using cached key');
     return keyCache.get(cacheKey)!;
   }
 
   // Sign a deterministic message to derive the key
   // The same wallet will always produce the same signature for the same message
+  console.log('[Encryption] Requesting wallet signature (check MetaMask popup)...');
   const signature = await signer.signMessage(KEY_DERIVATION_MESSAGE);
+  console.log('[Encryption] Signature received');
 
   // Hash the signature to get raw key material (32 bytes for AES-256)
   const keyMaterial = ethers.keccak256(ethers.toUtf8Bytes(signature));
