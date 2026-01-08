@@ -506,7 +506,9 @@ class FhevmService {
           // MUST match @fhevm/solidity ZamaConfig.sol addresses
           aclContractAddress: '0x687820221192C5B662b25367F70076A37bc79b6c',
           kmsContractAddress: '0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC',
-          coprocessorAddress: '0x848B0066793BcC60346Da1F49049357399B8D595'
+          coprocessorAddress: '0x848B0066793BcC60346Da1F49049357399B8D595',
+          verifyingContractAddressDecryption: '0xa02Cda4Ca3a71D7C46997716F4283aa851C28812',
+          decryptionOracleAddress: '0xa02Cda4Ca3a71D7C46997716F4283aa851C28812'
         };
       }
 
