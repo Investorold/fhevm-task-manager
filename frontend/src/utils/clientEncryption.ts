@@ -159,6 +159,36 @@ export function clearEncryptionKeyCache(): void {
 }
 
 /**
+ * Check if encryption key is already cached for an address
+ */
+export function isEncryptionKeyCached(address: string): boolean {
+  return keyCache.has(address.toLowerCase());
+}
+
+/**
+ * Pre-derive encryption key immediately after wallet connection.
+ * Call this proactively to avoid signature popup delays during encrypt/decrypt.
+ * Returns true if key was derived, false if already cached or on error.
+ */
+export async function preDeriveEncryptionKey(signer: ethers.Signer): Promise<boolean> {
+  try {
+    const address = await signer.getAddress();
+    if (isEncryptionKeyCached(address)) {
+      console.log('[Encryption] Key already cached, skipping pre-derivation');
+      return false;
+    }
+
+    console.log('[Encryption] Pre-deriving encryption key...');
+    await deriveEncryptionKey(signer);
+    console.log('[Encryption] Key pre-derived and cached successfully');
+    return true;
+  } catch (error) {
+    console.error('[Encryption] Pre-derivation failed:', error);
+    return false;
+  }
+}
+
+/**
  * High-level helper: Encrypt task for storage
  */
 export async function encryptTaskForStorage(

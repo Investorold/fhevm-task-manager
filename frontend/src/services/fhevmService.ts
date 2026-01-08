@@ -541,250 +541,34 @@ class FhevmService {
         }
       }
 
-      let lastError: Error | null = null;
-      const maxRetries = 2;
-      const maxRetriesForKeyError = 3; // Reduced for faster response
-      const baseDelay = 300; // Reduced from 500ms
-
-      secureLogger.debug('[FHEVM] Creating SDK instance (this should only happen once per page load)...');
-      
-      // Final verification of mutated config before passing to SDK
-      secureLogger.debug('[FHEVM] 📋 Config being passed to createInstance():', {
+      secureLogger.debug('[FHEVM] Creating SDK instance...');
+      secureLogger.debug('[FHEVM] Config:', {
         gatewayUrl: config.gatewayUrl,
         gatewayChainId: config.gatewayChainId,
-        chainId: config.chainId,
-        note: 'This is the EXACT config the SDK will receive'
+        chainId: config.chainId
       });
-      
-      // Check if error is a key fetch error (comprehensive detection)
-      const isKeyFetchError = (error: any): boolean => {
-        const errorMsg = (error?.message || String(error) || '').toLowerCase();
-        return (
-          errorMsg.includes('public key') ||
-          errorMsg.includes('keyid') ||
-          errorMsg.includes('key id') ||
-          (errorMsg.includes('key') && errorMsg.includes('must provide')) ||
-          (errorMsg.includes('key') && errorMsg.includes('required')) ||
-          (errorMsg.includes('key') && errorMsg.includes('missing')) ||
-          errorMsg.includes('encryption key') ||
-          errorMsg.includes('gateway key')
-        );
-      };
-      
-      let effectiveMaxRetries = maxRetries;
-      let isKeyError = false;
-      
-      // Pre-flight check: Use failover system to verify gateway health
-      // Skip if gatewayUrl is forced (user knows what they want)
-      if (!forcedConfig?.gatewayUrl) {
-        try {
-          secureLogger.debug('[FHEVM] 🔍 Pre-flight check: Verifying gateway endpoint health...');
-          const healthCheck = await gatewayFailover.checkHealth({
-            url: config.gatewayUrl,
-            name: 'Selected Gateway',
-            priority: 1
-          });
-          
-          if (!healthCheck.isHealthy) {
-            secureLogger.warn(`[FHEVM] ⚠️ Selected gateway (${config.gatewayUrl}) appears unhealthy`);
-            if (healthCheck.error) {
-              secureLogger.warn(`[FHEVM] ⚠️ Error: ${healthCheck.error}`);
-            }
-            secureLogger.warn('[FHEVM] 💡 Will retry with exponential backoff - failover system will handle endpoint selection');
-            effectiveMaxRetries = maxRetriesForKeyError; // Start with more retries
-            
-            // If current gateway is unhealthy, try to find a better one
-            const betterEndpoint = await gatewayFailover.findHealthyEndpoint();
-            if (betterEndpoint && betterEndpoint.url !== config.gatewayUrl) {
-              secureLogger.debug(`[FHEVM] 🔄 Switching to healthier endpoint: ${betterEndpoint.url}`);
-              config.gatewayUrl = betterEndpoint.url;
-            }
-          } else {
-            secureLogger.debug(`[FHEVM] ✅ Gateway endpoint is healthy (${healthCheck.responseTime}ms)`);
-            gatewayFailover.recordSuccess(config.gatewayUrl);
-          }
-        } catch (preflightError: any) {
-          // Pre-flight check failures are non-critical - CORS or network issues are expected
-          // The SDK itself will handle the actual key fetch
-          secureLogger.warn('[FHEVM] ⚠️ Pre-flight check failed (non-critical, may be CORS):', preflightError?.message || preflightError);
-          // Continue anyway - the SDK will try to fetch the key itself
-        }
-      } else {
-        secureLogger.debug('[FHEVM] ⏭️ Skipping pre-flight health check (gatewayUrl is forced)');
-      }
-      
-      for (let attempt = 1; attempt <= effectiveMaxRetries; attempt++) {
-        try {
-          // 🔥 Pass the mutated config directly - SDK must use these values
-          this.instance = await createInstance(config);
-          
-          // Some SDK versions require explicit initSDK() call
-          if (typeof this.instance.initSDK === 'function') {
-            secureLogger.debug('[FHEVM] Calling instance.initSDK()...');
-            await this.instance.initSDK();
-          }
-          
-          // Record success for failover tracking
-          gatewayFailover.recordSuccess(config.gatewayUrl);
-          
-          // CRITICAL: Store the config we used so we can access it later
-          // The SDK instance might not expose config directly, so we store it ourselves
-          this.currentConfig = {
-            gatewayUrl: config.gatewayUrl,
-            gatewayChainId: config.gatewayChainId,
-            chainId: config.chainId,
-            network: config.network,
-            relayerUrl: config.relayerUrl
-          };
-          
-          secureLogger.debug('[FHEVM] ✅ SDK instance created successfully');
-          secureLogger.debug('[FHEVM] 💾 Stored config:', {
-            gatewayChainId: this.currentConfig.gatewayChainId,
-            chainId: this.currentConfig.chainId,
-            gatewayUrl: this.currentConfig.gatewayUrl
-          });
-          
-          break;
-        } catch (error) {
-          lastError = error as Error;
-          const errorMsg = lastError?.message || String(error);
-          
-          // Check if this is a key fetch error - if so, increase retries and try failover
-          if (isKeyFetchError(error)) {
-            if (!isKeyError) {
-              secureLogger.warn('[FHEVM] 🔑 Key fetch error detected - increasing retries for gateway key availability');
-              isKeyError = true;
-            }
-            // Increase retries and continue from current attempt
-            const remainingAttempts = effectiveMaxRetries - attempt;
-            effectiveMaxRetries = attempt + maxRetriesForKeyError;
-            
-            secureLogger.warn(`[FHEVM] 🔑 Key fetch error (attempt ${attempt}/${effectiveMaxRetries}):`, errorMsg);
-            secureLogger.warn('[FHEVM] 💡 The gateway key service may be temporarily unavailable.');
-            
-            // Record failure for failover tracking
-            gatewayFailover.recordFailure(config.gatewayUrl);
-            
-            // Try to find a better endpoint if current one is failing
-            if (attempt > 1) { // Only try failover after first failure
-              try {
-                const betterEndpoint = await gatewayFailover.findHealthyEndpoint();
-                if (betterEndpoint && betterEndpoint.url !== config.gatewayUrl) {
-                  secureLogger.debug(`[FHEVM] 🔄 Failover: Switching to ${betterEndpoint.name} (${betterEndpoint.url})`);
-                  config.gatewayUrl = betterEndpoint.url;
-                  // Update stored config too
-                  this.currentConfig = { ...this.currentConfig, gatewayUrl: betterEndpoint.url };
-                }
-              } catch (failoverError) {
-                secureLogger.warn('[FHEVM] ⚠️ Failover check failed:', failoverError);
-              }
-            }
-            
-            secureLogger.warn('[FHEVM] 💡 Retrying with exponential backoff...');
-            secureLogger.debug('[FHEVM] 🔍 Gateway key URL:', `${config.gatewayUrl}/v1/keyurl`);
-          } else {
-            secureLogger.warn(`[FHEVM] Instance creation attempt ${attempt}/${effectiveMaxRetries} failed:`, error);
-          }
-          
-          if (attempt < effectiveMaxRetries) {
-            // Exponential backoff with cap at 10 seconds
-            // For key errors, use longer delays
-            const delayMultiplier = isKeyError ? 1.5 : 1;
-            const delay = Math.min(3000, baseDelay * Math.pow(1.5, attempt - 1) * delayMultiplier);
-            secureLogger.debug(`[FHEVM] ⏳ Waiting ${delay}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
-        }
-      }
 
-      if (!this.instance) {
-        // Check if this was a key fetch error
-        const errorMsg = lastError?.message || String(lastError) || '';
-        const wasKeyError = errorMsg.includes('public key') || 
-                          errorMsg.includes('keyId') || 
-                          (errorMsg.includes('key') && errorMsg.includes('must provide'));
-        
-        if (wasKeyError) {
-          // Provide specific guidance for key fetch errors
-          secureLogger.error('[FHEVM] ❌ Gateway key fetch failed after all retries');
-          secureLogger.error('[FHEVM] 🔍 Gateway key URL:', `${config.gatewayUrl}/v1/keyurl`);
-          secureLogger.error('[FHEVM] 💡 This usually means:');
-          secureLogger.error('   1. Gateway key service is temporarily unavailable');
-          secureLogger.error('   2. Coprocessor is down (check https://status.zama.org)');
-          secureLogger.error('   3. Network/CORS issue blocking key fetch');
-          secureLogger.error('[FHEVM] 💡 Run diagnostic: fetch("/key-fetch-diagnostic.js").then(r=>r.text()).then(eval)');
-          
-          // Provide detailed error with diagnostic steps
-          const diagnosticScript = `
-(async()=>{
-  try{
-    const r = await fetch("${config.gatewayUrl}/v1/keyurl", { cache: "no-store" });
-    secureLogger.debug('KEYURL fetch status:', r.status);
-    const txt = await r.text();
-    secureLogger.debug('KEYURL response (first 2000 chars):', txt.slice(0,2000));
-    try { secureLogger.debug('KEYURL json:', JSON.parse(txt)); } catch(e){}
-  }catch(e){
-    secureLogger.error('KEYURL fetch failed:', e);
-  }
-})();`;
-          
-          throw new Error(
-            `🔑 GATEWAY KEY FETCH FAILED\n\n` +
-            `The SDK could not fetch the gateway's encryption public key after ${effectiveMaxRetries} retries.\n\n` +
-            `🔴 MOST LIKELY CAUSES:\n` +
-            `1. Coprocessor - Testnet is down (check https://status.zama.org)\n` +
-            `2. Gateway key service temporarily unavailable\n` +
-            `3. Network/CORS issue blocking key fetch\n\n` +
-            `✅ WHAT TO DO:\n` +
-            `1. Check https://status.zama.org for "Coprocessor - Testnet" status\n` +
-            `   → If it shows "Down" or "Degraded", wait 5-10 minutes, then refresh page\n` +
-            `2. Run diagnostic script in browser console:\n` +
-            `   fetch("/key-fetch-diagnostic.js").then(r=>r.text()).then(eval)\n\n` +
-            `   OR paste this quick check:\n` +
-            `   ${diagnosticScript.trim()}\n\n` +
-            `3. Check browser Network tab for failed requests to:\n` +
-            `   ${config.gatewayUrl}/v1/keyurl\n` +
-            `   → Look for CORS errors, network errors, or 4xx/5xx status codes\n\n` +
-            `🔍 Technical details:\n` +
-            `• Gateway URL: ${config.gatewayUrl}\n` +
-            `• Key URL: ${config.gatewayUrl}/v1/keyurl\n` +
-            `• Error: ${errorMsg.substring(0, 200)}\n` +
-            `• Retries attempted: ${effectiveMaxRetries}\n\n` +
-            `The SDK requires the gateway's public key to encrypt data. ` +
-            `If the gateway is down, encryption is unavailable until it recovers.`
-          );
+      // Single attempt - no retries
+      try {
+        this.instance = await createInstance(config);
+
+        if (typeof this.instance.initSDK === 'function') {
+          await this.instance.initSDK();
         }
-        
-        secureLogger.debug('[FHEVM] Trying fallback config...');
-        // Fallback config uses .org endpoints (Zama migration complete)
-        const forcedConfig = typeof window !== 'undefined' ? (window as any).__ZAMA_FORCE_GATEWAY_CONFIG : null;
-        const fallbackConfig = {
-          gatewayUrl: forcedConfig?.gatewayUrl || 'https://relayer.testnet.zama.org', // Updated to .org
-          gatewayChainId: forcedConfig?.gatewayChainId || 10901,
-          chainId: forcedConfig?.chainId || 11155111,
-          relayerUrl: forcedConfig?.relayerUrl || 'https://relayer.testnet.zama.org',
-          network: selectedProvider
+
+        this.currentConfig = {
+          gatewayUrl: config.gatewayUrl,
+          gatewayChainId: config.gatewayChainId,
+          chainId: config.chainId,
+          network: config.network,
+          relayerUrl: config.relayerUrl
         };
 
-        try {
-          this.instance = await createInstance(fallbackConfig);
-          
-          // Some SDK versions require explicit initSDK() call
-          if (typeof this.instance.initSDK === 'function') {
-            await this.instance.initSDK();
-          }
-          
-          // Store fallback config too
-          this.currentConfig = {
-            gatewayUrl: fallbackConfig.gatewayUrl,
-            gatewayChainId: fallbackConfig.gatewayChainId,
-            chainId: fallbackConfig.chainId
-          };
-          
-          secureLogger.debug('[FHEVM] ✅ SDK instance created with fallback config');
-        } catch (fallbackError) {
-          throw new Error(`FHEVM initialization failed: ${lastError?.message || fallbackError}`);
-        }
+        secureLogger.debug('[FHEVM] ✅ SDK instance created successfully');
+      } catch (error: any) {
+        const errorMsg = error?.message || String(error);
+        secureLogger.error('[FHEVM] ❌ SDK initialization failed:', errorMsg);
+        throw new Error(`FHEVM initialization failed: ${errorMsg}`);
       }
 
       this.isInitialized = true;
