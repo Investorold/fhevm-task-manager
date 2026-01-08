@@ -21,13 +21,15 @@
 
       // Ensure FHEVM SDK is properly exposed after CDN loads
       window.addEventListener('load', function() {
-        // Check if SDK loaded and expose it properly
-        if (typeof window.RelayerSDK !== 'undefined') {
-          window.fhevm = window.RelayerSDK;
-          console.log('[FHEVM] SDK v0.3.0-8 exposed from RelayerSDK');
-        } else if (typeof window.relayerSDK !== 'undefined') {
-          window.fhevm = window.relayerSDK;
-          console.log('[FHEVM] SDK v0.3.0-8 exposed from relayerSDK');
+        var sdk = window.RelayerSDK || window.relayerSDK;
+        if (sdk) {
+          window.fhevm = sdk;
+          console.log('[FHEVM] SDK loaded. Available exports:', Object.keys(sdk));
+          console.log('[FHEVM] SepoliaConfig:', sdk.SepoliaConfig);
+          console.log('[FHEVM] createInstance:', typeof sdk.createInstance);
+          console.log('[FHEVM] initSDK:', typeof sdk.initSDK);
+        } else {
+          console.error('[FHEVM] SDK not found on window');
         }
       });
     </script>
