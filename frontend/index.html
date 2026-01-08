@@ -6,10 +6,11 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FHEVM Task Manager</title>
+    <!-- Zama FHEVM SDK v0.2.0 (UMD build - matches deployed contract) -->
+    <script src="https://cdn.zama.org/relayer-sdk-js/0.2.0/relayer-sdk-js.umd.cjs" type="text/javascript"></script>
     <!-- HARD OVERRIDE - Must be set before SDK initializes to prevent stale defaults -->
     <script>
       // Override stale defaults in SDK bundle before it loads
-      // SDK will be loaded dynamically by fhevmService.ts via import()
       window.__ZAMA_FORCE_GATEWAY_CONFIG = {
         gatewayUrl: "https://relayer.testnet.zama.org", // Zama merged gateway into relayer (Jan 2026)
         gatewayChainId: 10901, // CRITICAL: Must be 10901 (not 55815)
@@ -17,6 +18,18 @@
         relayerUrl: "https://relayer.testnet.zama.org"
       };
       console.log('[FHEVM] Gateway config set:', window.__ZAMA_FORCE_GATEWAY_CONFIG);
+
+      // Ensure FHEVM SDK is properly exposed after CDN loads
+      window.addEventListener('load', function() {
+        // Check if SDK loaded and expose it properly
+        if (typeof window.RelayerSDK !== 'undefined') {
+          window.fhevm = window.RelayerSDK;
+          console.log('[FHEVM] SDK v0.2.0 exposed from RelayerSDK');
+        } else if (typeof window.relayerSDK !== 'undefined') {
+          window.fhevm = window.relayerSDK;
+          console.log('[FHEVM] SDK v0.2.0 exposed from relayerSDK');
+        }
+      });
     </script>
   </head>
   <body>

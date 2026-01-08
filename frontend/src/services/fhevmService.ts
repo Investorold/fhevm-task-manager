@@ -848,52 +848,65 @@ class FhevmService {
       return window.fhevm;
     }
 
-    // Check for duplicate SDK instances (per Zama GPT advice)
-    if ((window as any).__ZAMA_SDK__ || (window as any).zama || (window as any).__relayer_sdk__) {
-      secureLogger.warn('[FHEVM] ⚠️ Multiple SDK instances detected on window object. This may cause handle mismatches.');
+    // Check for SDK loaded from script tag (UMD build)
+    const sdk = (window as any).RelayerSDK || (window as any).relayerSDK || (window as any).fhevm;
+    if (sdk && typeof sdk.createInstance === 'function') {
+      secureLogger.debug('[FHEVM] ✅ SDK v0.2.0 found from script tag');
+      const module: FhevmModule = {
+        initSDK: sdk.initSDK || (() => Promise.resolve()),
+        createInstance: sdk.createInstance.bind(sdk)
+      };
+      window.fhevm = module;
+      return module;
     }
 
-    // Load SDK from CDN via dynamic import (ES module)
-    const cdnUrl = 'https://cdn.zama.org/relayer-sdk-js/0.3.0-6/relayer-sdk-js.js';
-    try {
-      secureLogger.debug('[FHEVM] Loading SDK from CDN:', cdnUrl);
-      const cdnUrlToLoad = forceReload ? `${cdnUrl}?v=${Date.now()}` : cdnUrl;
-      // @ts-ignore - CDN bundle has no types
-      const cdnModule = await import(/* @vite-ignore */ cdnUrlToLoad);
-      if (cdnModule && typeof cdnModule.initSDK === 'function') {
-        window.fhevm = cdnModule;
-        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK v0.3.0-6 from CDN');
-        return cdnModule;
+    // Wait for script tag to load (up to 3 seconds)
+    secureLogger.debug('[FHEVM] Waiting for SDK script tag to load...');
+    const waitStart = Date.now();
+    while (Date.now() - waitStart < 3000) {
+      const sdk = (window as any).RelayerSDK || (window as any).relayerSDK || (window as any).fhevm;
+      if (sdk && typeof sdk.createInstance === 'function') {
+        secureLogger.debug('[FHEVM] ✅ SDK v0.2.0 loaded from script tag');
+        const module: FhevmModule = {
+          initSDK: sdk.initSDK || (() => Promise.resolve()),
+          createInstance: sdk.createInstance.bind(sdk)
+        };
+        window.fhevm = module;
+        return module;
       }
-      // Check if SDK exports differently (e.g., default export)
-      if (cdnModule.default && typeof cdnModule.default.initSDK === 'function') {
-        window.fhevm = cdnModule.default;
-        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK v0.3.0-6 from CDN (default export)');
-        return cdnModule.default;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Fallback: Try dynamic import of UMD build (v0.2.0 to match deployed contract)
+    secureLogger.warn('[FHEVM] Script tag not loaded, trying dynamic import...');
+    const cdnUrl = 'https://cdn.zama.org/relayer-sdk-js/0.2.0/relayer-sdk-js.umd.cjs';
+    try {
+      secureLogger.debug('[FHEVM] Loading SDK v0.2.0 from CDN:', cdnUrl);
+      // For UMD builds, we need to load via script tag injection
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = cdnUrl;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('Failed to load SDK from CDN'));
+        document.head.appendChild(script);
+      });
+
+      // Check if SDK is now available
+      const sdk = (window as any).RelayerSDK || (window as any).relayerSDK;
+      if (sdk && typeof sdk.createInstance === 'function') {
+        const module: FhevmModule = {
+          initSDK: sdk.initSDK || (() => Promise.resolve()),
+          createInstance: sdk.createInstance.bind(sdk)
+        };
+        window.fhevm = module;
+        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK v0.2.0 from CDN');
+        return module;
       }
     } catch (cdnError) {
-      secureLogger.warn('[FHEVM] Failed to load SDK from CDN, trying local bundle:', cdnError);
+      secureLogger.warn('[FHEVM] Failed to load SDK from CDN:', cdnError);
     }
 
-    // Fallback to local bundle if CDN fails
-    try {
-      const localUrl = typeof window !== 'undefined'
-        ? `${window.location.origin}/relayer-sdk/relayer-sdk-js.js`
-        : '/relayer-sdk/relayer-sdk-js.js';
-      secureLogger.debug('[FHEVM] Loading SDK from local bundle (fallback):', localUrl);
-      const urlToLoad = forceReload ? `${localUrl}?v=${Date.now()}` : localUrl;
-      // @ts-ignore - local bundle has no types
-      const localModule = await import(/* @vite-ignore */ urlToLoad);
-      if (localModule && typeof localModule.initSDK === 'function') {
-        window.fhevm = localModule;
-        secureLogger.debug('[FHEVM] ✅ Successfully loaded SDK from local bundle (fallback)');
-        return localModule;
-      }
-    } catch (error) {
-      secureLogger.warn('[FHEVM] Failed to load local bundle:', error);
-    }
-
-    throw new Error('Could not load FHEVM SDK module. Tried CDN (cdn.zama.org) and local bundle. Check console for details.');
+    throw new Error('Could not load FHEVM SDK module. Check that the script tag in index.html is loading correctly.');
   }
 }
 
