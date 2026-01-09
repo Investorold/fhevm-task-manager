@@ -17,45 +17,27 @@ import type {
   TypedEventLog,
   TypedListener,
   TypedContractMethod,
-} from "../common";
+} from "../../../../common";
 
-export interface FHECounterInterface extends Interface {
-  getFunction(
-    nameOrSignature:
-      | "confidentialProtocolId"
-      | "decrement"
-      | "getCount"
-      | "increment"
-  ): FunctionFragment;
+export interface ZamaEthereumConfigInterface extends Interface {
+  getFunction(nameOrSignature: "confidentialProtocolId"): FunctionFragment;
 
   encodeFunctionData(
     functionFragment: "confidentialProtocolId",
     values?: undefined
-  ): string;
-  encodeFunctionData(
-    functionFragment: "decrement",
-    values: [BytesLike, BytesLike]
-  ): string;
-  encodeFunctionData(functionFragment: "getCount", values?: undefined): string;
-  encodeFunctionData(
-    functionFragment: "increment",
-    values: [BytesLike, BytesLike]
   ): string;
 
   decodeFunctionResult(
     functionFragment: "confidentialProtocolId",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(functionFragment: "decrement", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "getCount", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "increment", data: BytesLike): Result;
 }
 
-export interface FHECounter extends BaseContract {
-  connect(runner?: ContractRunner | null): FHECounter;
+export interface ZamaEthereumConfig extends BaseContract {
+  connect(runner?: ContractRunner | null): ZamaEthereumConfig;
   waitForDeployment(): Promise<this>;
 
-  interface: FHECounterInterface;
+  interface: ZamaEthereumConfigInterface;
 
   queryFilter<TCEvent extends TypedContractEvent>(
     event: TCEvent,
@@ -96,20 +78,6 @@ export interface FHECounter extends BaseContract {
 
   confidentialProtocolId: TypedContractMethod<[], [bigint], "view">;
 
-  decrement: TypedContractMethod<
-    [inputEuint32: BytesLike, inputProof: BytesLike],
-    [void],
-    "nonpayable"
-  >;
-
-  getCount: TypedContractMethod<[], [string], "view">;
-
-  increment: TypedContractMethod<
-    [inputEuint32: BytesLike, inputProof: BytesLike],
-    [void],
-    "nonpayable"
-  >;
-
   getFunction<T extends ContractMethod = ContractMethod>(
     key: string | FunctionFragment
   ): T;
@@ -117,23 +85,6 @@ export interface FHECounter extends BaseContract {
   getFunction(
     nameOrSignature: "confidentialProtocolId"
   ): TypedContractMethod<[], [bigint], "view">;
-  getFunction(
-    nameOrSignature: "decrement"
-  ): TypedContractMethod<
-    [inputEuint32: BytesLike, inputProof: BytesLike],
-    [void],
-    "nonpayable"
-  >;
-  getFunction(
-    nameOrSignature: "getCount"
-  ): TypedContractMethod<[], [string], "view">;
-  getFunction(
-    nameOrSignature: "increment"
-  ): TypedContractMethod<
-    [inputEuint32: BytesLike, inputProof: BytesLike],
-    [void],
-    "nonpayable"
-  >;
 
   filters: {};
 }

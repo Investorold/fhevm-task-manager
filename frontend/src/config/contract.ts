@@ -1,13 +1,12 @@
 // Contract Configuration
-// Update this file with your Termius-deployed contract address
+// Updated for @fhevm/solidity@0.10.0 with new Zama infrastructure addresses
 
 export const CONTRACT_CONFIG = {
   // ✅ VERIFIED DEPLOYMENT - Sepolia Testnet (Chain ID: 11155111)
-  // 📍 Contract: 0x64E706453cB72Cdef3a0e0367E67E8d0B1be8a2F
-  // 🔗 Sourcify: https://repo.sourcify.dev/contracts/partial_match/11155111/0x64E706453cB72Cdef3a0e0367E67E8d0B1be8a2F/
-  // 🔗 Etherscan: https://sepolia.etherscan.io/address/0x64E706453cB72Cdef3a0e0367E67E8d0B1be8a2F
-  // ✅ Redeployed Jan 2026 with updated FHEVM addresses from docs.zama.org
-  TASK_MANAGER_ADDRESS: '0x64E706453cB72Cdef3a0e0367E67E8d0B1be8a2F',
+  // 📍 Contract: 0x0D24D85b455c58cfFFbe8609Ae59894Ae209e4C9
+  // 🔗 Etherscan: https://sepolia.etherscan.io/address/0x0D24D85b455c58cfFFbe8609Ae59894Ae209e4C9
+  // ✅ Deployed with @fhevm/solidity@0.10.0 (new decryption API)
+  TASK_MANAGER_ADDRESS: '0x0D24D85b455c58cfFFbe8609Ae59894Ae209e4C9',
 
   // Network configuration
   NETWORK: {
@@ -16,14 +15,17 @@ export const CONTRACT_CONFIG = {
     rpcUrl: 'https://ethereum-sepolia.publicnode.com',
   },
 
-  // FHEVM Configuration for Sepolia - MUST match @fhevm/solidity ZamaConfig.sol
-  // These addresses are from the deployed contract's library (v0.8.0)
+  // FHEVM Configuration for Sepolia - MUST match @fhevm/solidity@0.10.0 ZamaConfig.sol
+  // These are the CURRENT official Zama addresses (updated Jan 2025)
   FHEVM: {
     relayerUrl: 'https://relayer.testnet.zama.org',
-    aclContractAddress: '0x687820221192C5B662b25367F70076A37bc79b6c',
-    kmsContractAddress: '0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC',
-    coprocessorAddress: '0x848B0066793BcC60346Da1F49049357399B8D595',
-    decryptionOracleAddress: '0xa02Cda4Ca3a71D7C46997716F4283aa851C28812',
+    gatewayUrl: 'https://gateway.testnet.zama.org',
+    aclContractAddress: '0xf0Ffdc93b7E186bC2f8CB3dAA75D86d1930A433D',
+    kmsContractAddress: '0xbE0E383937d564D7FF0BC3b46c51f0bF8d5C311A',
+    coprocessorAddress: '0x92C920834Ec8941d2C77D188936E1f7A6f49c127',
+    inputVerifierAddress: '0xBBC1fFCdc7C316aAAd72E807D9b0272BE8F84DA0',
+    decryptionAddress: '0x5D8BD78e2ea6bbE41f26dFe9fdaEAa349e077478',
+    inputVerificationAddress: '0x483b9dE06E4E4C7D35CCf5837A1668487406D955',
     gatewayChainId: 10901,
   }
 };
@@ -42,4 +44,3 @@ export const getNetworkConfig = () => {
 export const getFhevmConfig = () => {
   return CONTRACT_CONFIG.FHEVM;
 };
-

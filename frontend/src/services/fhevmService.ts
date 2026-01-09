@@ -462,12 +462,14 @@ class FhevmService {
           chainId: 11155111,
           gatewayChainId: 10901,
           relayerUrl: 'https://relayer.testnet.zama.org',
-          gatewayUrl: 'https://relayer.testnet.zama.org',
-          // Addresses from @fhevm/solidity ZamaConfig.sol
-          aclContractAddress: '0x687820221192C5B662b25367F70076A37bc79b6c',
-          kmsContractAddress: '0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC',
-          coprocessorAddress: '0x848B0066793BcC60346Da1F49049357399B8D595',
-          verifyingContractAddressDecryption: '0xa02Cda4Ca3a71D7C46997716F4283aa851C28812',
+          gatewayUrl: 'https://gateway.testnet.zama.org',
+          // Addresses from @fhevm/solidity@0.10.0 ZamaConfig.sol (Jan 2025)
+          aclContractAddress: '0xf0Ffdc93b7E186bC2f8CB3dAA75D86d1930A433D',
+          kmsContractAddress: '0xbE0E383937d564D7FF0BC3b46c51f0bF8d5C311A',
+          coprocessorAddress: '0x92C920834Ec8941d2C77D188936E1f7A6f49c127',
+          inputVerifierContractAddress: '0xBBC1fFCdc7C316aAAd72E807D9b0272BE8F84DA0',
+          verifyingContractAddressDecryption: '0x5D8BD78e2ea6bbE41f26dFe9fdaEAa349e077478',
+          verifyingContractAddressInputVerification: '0x483b9dE06E4E4C7D35CCf5837A1668487406D955',
         };
       }
 

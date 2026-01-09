@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import { FHE, euint32, externalEuint32, ebool } from "@fhevm/solidity/lib/FHE.sol";
-import { SepoliaConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
+import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 
-contract TodoList is SepoliaConfig {
+contract TodoList is ZamaEthereumConfig {
     struct Task {
         euint32 encryptedContent;
         ebool completed;

@@ -40,8 +40,8 @@ export interface TodoListInterface extends Interface {
     nameOrSignature:
       | "addTask"
       | "completeTask"
+      | "confidentialProtocolId"
       | "getTasks"
-      | "protocolId"
       | "taskCount"
   ): FunctionFragment;
 
@@ -57,11 +57,11 @@ export interface TodoListInterface extends Interface {
     functionFragment: "completeTask",
     values: [BigNumberish]
   ): string;
-  encodeFunctionData(functionFragment: "getTasks", values?: undefined): string;
   encodeFunctionData(
-    functionFragment: "protocolId",
+    functionFragment: "confidentialProtocolId",
     values?: undefined
   ): string;
+  encodeFunctionData(functionFragment: "getTasks", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "taskCount",
     values: [AddressLike]
@@ -72,8 +72,11 @@ export interface TodoListInterface extends Interface {
     functionFragment: "completeTask",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(
+    functionFragment: "confidentialProtocolId",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(functionFragment: "getTasks", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "protocolId", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "taskCount", data: BytesLike): Result;
 }
 
@@ -158,9 +161,9 @@ export interface TodoList extends BaseContract {
     "nonpayable"
   >;
 
-  getTasks: TypedContractMethod<[], [TodoList.TaskStructOutput[]], "view">;
+  confidentialProtocolId: TypedContractMethod<[], [bigint], "view">;
 
-  protocolId: TypedContractMethod<[], [bigint], "view">;
+  getTasks: TypedContractMethod<[], [TodoList.TaskStructOutput[]], "view">;
 
   taskCount: TypedContractMethod<[arg0: AddressLike], [bigint], "view">;
 
@@ -179,11 +182,11 @@ export interface TodoList extends BaseContract {
     nameOrSignature: "completeTask"
   ): TypedContractMethod<[_taskId: BigNumberish], [void], "nonpayable">;
   getFunction(
+    nameOrSignature: "confidentialProtocolId"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "getTasks"
   ): TypedContractMethod<[], [TodoList.TaskStructOutput[]], "view">;
-  getFunction(
-    nameOrSignature: "protocolId"
-  ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "taskCount"
   ): TypedContractMethod<[arg0: AddressLike], [bigint], "view">;

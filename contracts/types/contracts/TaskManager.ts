@@ -53,35 +53,31 @@ export declare namespace TaskManager {
 export interface TaskManagerInterface extends Interface {
   getFunction(
     nameOrSignature:
-      | "callbackCount"
       | "completeTask"
+      | "confidentialProtocolId"
       | "createTask"
       | "createTaskWithNumbers"
       | "createTaskWithText"
       | "deleteTaskById"
       | "editTask"
+      | "finalizeTaskDecryption"
+      | "getSharedTaskHandles"
       | "getSharedTasks"
+      | "getTaskHandles"
       | "getTaskId"
       | "getTaskIndex"
       | "getTasks"
       | "indexToTaskId"
+      | "isTaskDecryptionRequested"
       | "isTaskSharedWith"
-      | "lastDueSoonCount"
       | "owner"
-      | "protocolId"
       | "renounceOwnership"
-      | "requestInitiator"
-      | "requestSharedTaskDecryption"
       | "requestSharedTaskDecryptionById"
-      | "requestTaskDecryption"
       | "requestTaskDecryptionById"
-      | "requestTasksDueSoonCount"
       | "setFee"
-      | "shareTask"
       | "shareTaskById"
       | "sharedTasks"
       | "taskCreationFee"
-      | "taskDecryptionCallback"
       | "taskIdToIndex"
       | "tasks"
       | "transferOwnership"
@@ -90,22 +86,21 @@ export interface TaskManagerInterface extends Interface {
 
   getEvent(
     nameOrSignatureOrTopic:
-      | "Debug"
-      | "DecryptionFulfilled"
       | "DecryptionRequested"
       | "OwnershipTransferred"
+      | "PublicDecryptionVerified"
       | "TaskCreated"
       | "TaskDecrypted"
       | "TaskShared"
   ): EventFragment;
 
   encodeFunctionData(
-    functionFragment: "callbackCount",
-    values: [BigNumberish, BytesLike, BytesLike]
-  ): string;
-  encodeFunctionData(
     functionFragment: "completeTask",
     values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "confidentialProtocolId",
+    values?: undefined
   ): string;
   encodeFunctionData(
     functionFragment: "createTask",
@@ -128,8 +123,27 @@ export interface TaskManagerInterface extends Interface {
     values: [BigNumberish, BytesLike, BytesLike, BytesLike, BytesLike]
   ): string;
   encodeFunctionData(
+    functionFragment: "finalizeTaskDecryption",
+    values: [
+      BigNumberish,
+      BigNumberish,
+      BigNumberish,
+      BigNumberish,
+      BigNumberish,
+      BytesLike
+    ]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getSharedTaskHandles",
+    values: [BigNumberish, AddressLike]
+  ): string;
+  encodeFunctionData(
     functionFragment: "getSharedTasks",
     values: [AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getTaskHandles",
+    values: [BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "getTaskId",
@@ -148,53 +162,29 @@ export interface TaskManagerInterface extends Interface {
     values: [AddressLike, BigNumberish]
   ): string;
   encodeFunctionData(
+    functionFragment: "isTaskDecryptionRequested",
+    values: [AddressLike, BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "isTaskSharedWith",
     values: [AddressLike, AddressLike, BigNumberish]
   ): string;
-  encodeFunctionData(
-    functionFragment: "lastDueSoonCount",
-    values: [AddressLike]
-  ): string;
   encodeFunctionData(functionFragment: "owner", values?: undefined): string;
-  encodeFunctionData(
-    functionFragment: "protocolId",
-    values?: undefined
-  ): string;
   encodeFunctionData(
     functionFragment: "renounceOwnership",
     values?: undefined
-  ): string;
-  encodeFunctionData(
-    functionFragment: "requestInitiator",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "requestSharedTaskDecryption",
-    values: [BigNumberish, AddressLike]
   ): string;
   encodeFunctionData(
     functionFragment: "requestSharedTaskDecryptionById",
     values: [BigNumberish, AddressLike]
   ): string;
   encodeFunctionData(
-    functionFragment: "requestTaskDecryption",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
     functionFragment: "requestTaskDecryptionById",
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
-    functionFragment: "requestTasksDueSoonCount",
-    values: [BytesLike, BytesLike]
-  ): string;
-  encodeFunctionData(
     functionFragment: "setFee",
     values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "shareTask",
-    values: [BigNumberish, AddressLike]
   ): string;
   encodeFunctionData(
     functionFragment: "shareTaskById",
@@ -207,10 +197,6 @@ export interface TaskManagerInterface extends Interface {
   encodeFunctionData(
     functionFragment: "taskCreationFee",
     values?: undefined
-  ): string;
-  encodeFunctionData(
-    functionFragment: "taskDecryptionCallback",
-    values: [BigNumberish, BytesLike, BytesLike]
   ): string;
   encodeFunctionData(
     functionFragment: "taskIdToIndex",
@@ -227,11 +213,11 @@ export interface TaskManagerInterface extends Interface {
   encodeFunctionData(functionFragment: "withdraw", values?: undefined): string;
 
   decodeFunctionResult(
-    functionFragment: "callbackCount",
+    functionFragment: "completeTask",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
-    functionFragment: "completeTask",
+    functionFragment: "confidentialProtocolId",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "createTask", data: BytesLike): Result;
@@ -249,7 +235,19 @@ export interface TaskManagerInterface extends Interface {
   ): Result;
   decodeFunctionResult(functionFragment: "editTask", data: BytesLike): Result;
   decodeFunctionResult(
+    functionFragment: "finalizeTaskDecryption",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getSharedTaskHandles",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "getSharedTasks",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getTaskHandles",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "getTaskId", data: BytesLike): Result;
@@ -263,25 +261,16 @@ export interface TaskManagerInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "isTaskDecryptionRequested",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "isTaskSharedWith",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(
-    functionFragment: "lastDueSoonCount",
-    data: BytesLike
-  ): Result;
   decodeFunctionResult(functionFragment: "owner", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "protocolId", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "renounceOwnership",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "requestInitiator",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "requestSharedTaskDecryption",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -289,19 +278,10 @@ export interface TaskManagerInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
-    functionFragment: "requestTaskDecryption",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
     functionFragment: "requestTaskDecryptionById",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(
-    functionFragment: "requestTasksDueSoonCount",
-    data: BytesLike
-  ): Result;
   decodeFunctionResult(functionFragment: "setFee", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "shareTask", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "shareTaskById",
     data: BytesLike
@@ -312,10 +292,6 @@ export interface TaskManagerInterface extends Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "taskCreationFee",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "taskDecryptionCallback",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -330,37 +306,12 @@ export interface TaskManagerInterface extends Interface {
   decodeFunctionResult(functionFragment: "withdraw", data: BytesLike): Result;
 }
 
-export namespace DebugEvent {
-  export type InputTuple = [message: string, value: BigNumberish];
-  export type OutputTuple = [message: string, value: bigint];
-  export interface OutputObject {
-    message: string;
-    value: bigint;
-  }
-  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
-  export type Filter = TypedDeferredTopicFilter<Event>;
-  export type Log = TypedEventLog<Event>;
-  export type LogDescription = TypedLogDescription<Event>;
-}
-
-export namespace DecryptionFulfilledEvent {
-  export type InputTuple = [requestID: BigNumberish];
-  export type OutputTuple = [requestID: bigint];
-  export interface OutputObject {
-    requestID: bigint;
-  }
-  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
-  export type Filter = TypedDeferredTopicFilter<Event>;
-  export type Log = TypedEventLog<Event>;
-  export type LogDescription = TypedLogDescription<Event>;
-}
-
 export namespace DecryptionRequestedEvent {
-  export type InputTuple = [requestId: BigNumberish, initiator: AddressLike];
-  export type OutputTuple = [requestId: bigint, initiator: string];
+  export type InputTuple = [taskId: BigNumberish, owner: AddressLike];
+  export type OutputTuple = [taskId: bigint, owner: string];
   export interface OutputObject {
-    requestId: bigint;
-    initiator: string;
+    taskId: bigint;
+    owner: string;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -374,6 +325,25 @@ export namespace OwnershipTransferredEvent {
   export interface OutputObject {
     previousOwner: string;
     newOwner: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace PublicDecryptionVerifiedEvent {
+  export type InputTuple = [
+    handlesList: BytesLike[],
+    abiEncodedCleartexts: BytesLike
+  ];
+  export type OutputTuple = [
+    handlesList: string[],
+    abiEncodedCleartexts: string
+  ];
+  export interface OutputObject {
+    handlesList: string[];
+    abiEncodedCleartexts: string;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -396,21 +366,21 @@ export namespace TaskCreatedEvent {
 
 export namespace TaskDecryptedEvent {
   export type InputTuple = [
-    requestId: BigNumberish,
+    taskId: BigNumberish,
     user: AddressLike,
     title: BigNumberish,
     dueDate: BigNumberish,
     priority: BigNumberish
   ];
   export type OutputTuple = [
-    requestId: bigint,
+    taskId: bigint,
     user: string,
     title: bigint,
     dueDate: bigint,
     priority: bigint
   ];
   export interface OutputObject {
-    requestId: bigint;
+    taskId: bigint;
     user: string;
     title: bigint;
     dueDate: bigint;
@@ -483,21 +453,13 @@ export interface TaskManager extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
-  callbackCount: TypedContractMethod<
-    [
-      requestId: BigNumberish,
-      cleartexts: BytesLike,
-      decryptionProof: BytesLike
-    ],
-    [void],
-    "nonpayable"
-  >;
-
   completeTask: TypedContractMethod<
     [taskIndex: BigNumberish],
     [void],
     "nonpayable"
   >;
+
+  confidentialProtocolId: TypedContractMethod<[], [bigint], "view">;
 
   createTask: TypedContractMethod<
     [
@@ -552,9 +514,34 @@ export interface TaskManager extends BaseContract {
     "nonpayable"
   >;
 
+  finalizeTaskDecryption: TypedContractMethod<
+    [
+      taskId: BigNumberish,
+      clearTitle: BigNumberish,
+      clearDueDate: BigNumberish,
+      clearPriority: BigNumberish,
+      clearDescription: BigNumberish,
+      decryptionProof: BytesLike
+    ],
+    [void],
+    "nonpayable"
+  >;
+
+  getSharedTaskHandles: TypedContractMethod<
+    [taskId: BigNumberish, originalOwner: AddressLike],
+    [[string, string, string, string]],
+    "view"
+  >;
+
   getSharedTasks: TypedContractMethod<
     [recipient: AddressLike],
     [bigint[]],
+    "view"
+  >;
+
+  getTaskHandles: TypedContractMethod<
+    [taskId: BigNumberish],
+    [[string, string, string, string]],
     "view"
   >;
 
@@ -582,36 +569,24 @@ export interface TaskManager extends BaseContract {
     "view"
   >;
 
+  isTaskDecryptionRequested: TypedContractMethod<
+    [arg0: AddressLike, arg1: BigNumberish],
+    [boolean],
+    "view"
+  >;
+
   isTaskSharedWith: TypedContractMethod<
     [arg0: AddressLike, arg1: AddressLike, arg2: BigNumberish],
     [boolean],
     "view"
   >;
 
-  lastDueSoonCount: TypedContractMethod<[arg0: AddressLike], [bigint], "view">;
-
   owner: TypedContractMethod<[], [string], "view">;
-
-  protocolId: TypedContractMethod<[], [bigint], "view">;
 
   renounceOwnership: TypedContractMethod<[], [void], "nonpayable">;
 
-  requestInitiator: TypedContractMethod<[arg0: BigNumberish], [string], "view">;
-
-  requestSharedTaskDecryption: TypedContractMethod<
-    [taskIndex: BigNumberish, originalOwner: AddressLike],
-    [void],
-    "nonpayable"
-  >;
-
   requestSharedTaskDecryptionById: TypedContractMethod<
     [taskId: BigNumberish, originalOwner: AddressLike],
-    [void],
-    "nonpayable"
-  >;
-
-  requestTaskDecryption: TypedContractMethod<
-    [taskIndex: BigNumberish],
     [void],
     "nonpayable"
   >;
@@ -622,19 +597,7 @@ export interface TaskManager extends BaseContract {
     "nonpayable"
   >;
 
-  requestTasksDueSoonCount: TypedContractMethod<
-    [encryptedTimeMargin: BytesLike, inputProof: BytesLike],
-    [void],
-    "nonpayable"
-  >;
-
   setFee: TypedContractMethod<[_newFee: BigNumberish], [void], "nonpayable">;
-
-  shareTask: TypedContractMethod<
-    [taskIndex: BigNumberish, recipient: AddressLike],
-    [void],
-    "nonpayable"
-  >;
 
   shareTaskById: TypedContractMethod<
     [taskId: BigNumberish, recipient: AddressLike],
@@ -649,16 +612,6 @@ export interface TaskManager extends BaseContract {
   >;
 
   taskCreationFee: TypedContractMethod<[], [bigint], "view">;
-
-  taskDecryptionCallback: TypedContractMethod<
-    [
-      requestId: BigNumberish,
-      cleartexts: BytesLike,
-      decryptionProof: BytesLike
-    ],
-    [void],
-    "nonpayable"
-  >;
 
   taskIdToIndex: TypedContractMethod<
     [arg0: AddressLike, arg1: BigNumberish],
@@ -694,19 +647,11 @@ export interface TaskManager extends BaseContract {
   ): T;
 
   getFunction(
-    nameOrSignature: "callbackCount"
-  ): TypedContractMethod<
-    [
-      requestId: BigNumberish,
-      cleartexts: BytesLike,
-      decryptionProof: BytesLike
-    ],
-    [void],
-    "nonpayable"
-  >;
-  getFunction(
     nameOrSignature: "completeTask"
   ): TypedContractMethod<[taskIndex: BigNumberish], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "confidentialProtocolId"
+  ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "createTask"
   ): TypedContractMethod<
@@ -762,8 +707,36 @@ export interface TaskManager extends BaseContract {
     "nonpayable"
   >;
   getFunction(
+    nameOrSignature: "finalizeTaskDecryption"
+  ): TypedContractMethod<
+    [
+      taskId: BigNumberish,
+      clearTitle: BigNumberish,
+      clearDueDate: BigNumberish,
+      clearPriority: BigNumberish,
+      clearDescription: BigNumberish,
+      decryptionProof: BytesLike
+    ],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "getSharedTaskHandles"
+  ): TypedContractMethod<
+    [taskId: BigNumberish, originalOwner: AddressLike],
+    [[string, string, string, string]],
+    "view"
+  >;
+  getFunction(
     nameOrSignature: "getSharedTasks"
   ): TypedContractMethod<[recipient: AddressLike], [bigint[]], "view">;
+  getFunction(
+    nameOrSignature: "getTaskHandles"
+  ): TypedContractMethod<
+    [taskId: BigNumberish],
+    [[string, string, string, string]],
+    "view"
+  >;
   getFunction(
     nameOrSignature: "getTaskId"
   ): TypedContractMethod<
@@ -793,6 +766,13 @@ export interface TaskManager extends BaseContract {
     "view"
   >;
   getFunction(
+    nameOrSignature: "isTaskDecryptionRequested"
+  ): TypedContractMethod<
+    [arg0: AddressLike, arg1: BigNumberish],
+    [boolean],
+    "view"
+  >;
+  getFunction(
     nameOrSignature: "isTaskSharedWith"
   ): TypedContractMethod<
     [arg0: AddressLike, arg1: AddressLike, arg2: BigNumberish],
@@ -800,27 +780,11 @@ export interface TaskManager extends BaseContract {
     "view"
   >;
   getFunction(
-    nameOrSignature: "lastDueSoonCount"
-  ): TypedContractMethod<[arg0: AddressLike], [bigint], "view">;
-  getFunction(
     nameOrSignature: "owner"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
-    nameOrSignature: "protocolId"
-  ): TypedContractMethod<[], [bigint], "view">;
-  getFunction(
     nameOrSignature: "renounceOwnership"
   ): TypedContractMethod<[], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "requestInitiator"
-  ): TypedContractMethod<[arg0: BigNumberish], [string], "view">;
-  getFunction(
-    nameOrSignature: "requestSharedTaskDecryption"
-  ): TypedContractMethod<
-    [taskIndex: BigNumberish, originalOwner: AddressLike],
-    [void],
-    "nonpayable"
-  >;
   getFunction(
     nameOrSignature: "requestSharedTaskDecryptionById"
   ): TypedContractMethod<
@@ -829,28 +793,11 @@ export interface TaskManager extends BaseContract {
     "nonpayable"
   >;
   getFunction(
-    nameOrSignature: "requestTaskDecryption"
-  ): TypedContractMethod<[taskIndex: BigNumberish], [void], "nonpayable">;
-  getFunction(
     nameOrSignature: "requestTaskDecryptionById"
   ): TypedContractMethod<[taskId: BigNumberish], [void], "nonpayable">;
   getFunction(
-    nameOrSignature: "requestTasksDueSoonCount"
-  ): TypedContractMethod<
-    [encryptedTimeMargin: BytesLike, inputProof: BytesLike],
-    [void],
-    "nonpayable"
-  >;
-  getFunction(
     nameOrSignature: "setFee"
   ): TypedContractMethod<[_newFee: BigNumberish], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "shareTask"
-  ): TypedContractMethod<
-    [taskIndex: BigNumberish, recipient: AddressLike],
-    [void],
-    "nonpayable"
-  >;
   getFunction(
     nameOrSignature: "shareTaskById"
   ): TypedContractMethod<
@@ -868,17 +815,6 @@ export interface TaskManager extends BaseContract {
   getFunction(
     nameOrSignature: "taskCreationFee"
   ): TypedContractMethod<[], [bigint], "view">;
-  getFunction(
-    nameOrSignature: "taskDecryptionCallback"
-  ): TypedContractMethod<
-    [
-      requestId: BigNumberish,
-      cleartexts: BytesLike,
-      decryptionProof: BytesLike
-    ],
-    [void],
-    "nonpayable"
-  >;
   getFunction(
     nameOrSignature: "taskIdToIndex"
   ): TypedContractMethod<
@@ -910,20 +846,6 @@ export interface TaskManager extends BaseContract {
   ): TypedContractMethod<[], [void], "nonpayable">;
 
   getEvent(
-    key: "Debug"
-  ): TypedContractEvent<
-    DebugEvent.InputTuple,
-    DebugEvent.OutputTuple,
-    DebugEvent.OutputObject
-  >;
-  getEvent(
-    key: "DecryptionFulfilled"
-  ): TypedContractEvent<
-    DecryptionFulfilledEvent.InputTuple,
-    DecryptionFulfilledEvent.OutputTuple,
-    DecryptionFulfilledEvent.OutputObject
-  >;
-  getEvent(
     key: "DecryptionRequested"
   ): TypedContractEvent<
     DecryptionRequestedEvent.InputTuple,
@@ -936,6 +858,13 @@ export interface TaskManager extends BaseContract {
     OwnershipTransferredEvent.InputTuple,
     OwnershipTransferredEvent.OutputTuple,
     OwnershipTransferredEvent.OutputObject
+  >;
+  getEvent(
+    key: "PublicDecryptionVerified"
+  ): TypedContractEvent<
+    PublicDecryptionVerifiedEvent.InputTuple,
+    PublicDecryptionVerifiedEvent.OutputTuple,
+    PublicDecryptionVerifiedEvent.OutputObject
   >;
   getEvent(
     key: "TaskCreated"
@@ -960,28 +889,6 @@ export interface TaskManager extends BaseContract {
   >;
 
   filters: {
-    "Debug(string,uint256)": TypedContractEvent<
-      DebugEvent.InputTuple,
-      DebugEvent.OutputTuple,
-      DebugEvent.OutputObject
-    >;
-    Debug: TypedContractEvent<
-      DebugEvent.InputTuple,
-      DebugEvent.OutputTuple,
-      DebugEvent.OutputObject
-    >;
-
-    "DecryptionFulfilled(uint256)": TypedContractEvent<
-      DecryptionFulfilledEvent.InputTuple,
-      DecryptionFulfilledEvent.OutputTuple,
-      DecryptionFulfilledEvent.OutputObject
-    >;
-    DecryptionFulfilled: TypedContractEvent<
-      DecryptionFulfilledEvent.InputTuple,
-      DecryptionFulfilledEvent.OutputTuple,
-      DecryptionFulfilledEvent.OutputObject
-    >;
-
     "DecryptionRequested(uint256,address)": TypedContractEvent<
       DecryptionRequestedEvent.InputTuple,
       DecryptionRequestedEvent.OutputTuple,
@@ -1002,6 +909,17 @@ export interface TaskManager extends BaseContract {
       OwnershipTransferredEvent.InputTuple,
       OwnershipTransferredEvent.OutputTuple,
       OwnershipTransferredEvent.OutputObject
+    >;
+
+    "PublicDecryptionVerified(bytes32[],bytes)": TypedContractEvent<
+      PublicDecryptionVerifiedEvent.InputTuple,
+      PublicDecryptionVerifiedEvent.OutputTuple,
+      PublicDecryptionVerifiedEvent.OutputObject
+    >;
+    PublicDecryptionVerified: TypedContractEvent<
+      PublicDecryptionVerifiedEvent.InputTuple,
+      PublicDecryptionVerifiedEvent.OutputTuple,
+      PublicDecryptionVerifiedEvent.OutputObject
     >;
 
     "TaskCreated(address,uint256)": TypedContractEvent<

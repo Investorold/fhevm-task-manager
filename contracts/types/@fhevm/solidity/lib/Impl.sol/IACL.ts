@@ -3,6 +3,7 @@
 /* eslint-disable */
 import type {
   BaseContract,
+  BigNumberish,
   BytesLike,
   FunctionFragment,
   Result,
@@ -27,8 +28,15 @@ export interface IACLInterface extends Interface {
       | "allowForDecryption"
       | "allowTransient"
       | "cleanTransientStorage"
+      | "delegateForUserDecryption"
+      | "getUserDecryptionDelegationExpirationDate"
+      | "isAccountDenied"
       | "isAllowed"
       | "isAllowedForDecryption"
+      | "isHandleDelegatedForUserDecryption"
+      | "multicall"
+      | "persistAllowed"
+      | "revokeDelegationForUserDecryption"
   ): FunctionFragment;
 
   encodeFunctionData(
@@ -48,12 +56,40 @@ export interface IACLInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "delegateForUserDecryption",
+    values: [AddressLike, AddressLike, BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getUserDecryptionDelegationExpirationDate",
+    values: [AddressLike, AddressLike, AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "isAccountDenied",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(
     functionFragment: "isAllowed",
     values: [BytesLike, AddressLike]
   ): string;
   encodeFunctionData(
     functionFragment: "isAllowedForDecryption",
     values: [BytesLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "isHandleDelegatedForUserDecryption",
+    values: [AddressLike, AddressLike, AddressLike, BytesLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "multicall",
+    values: [BytesLike[]]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "persistAllowed",
+    values: [BytesLike, AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "revokeDelegationForUserDecryption",
+    values: [AddressLike, AddressLike]
   ): string;
 
   decodeFunctionResult(functionFragment: "allow", data: BytesLike): Result;
@@ -69,9 +105,34 @@ export interface IACLInterface extends Interface {
     functionFragment: "cleanTransientStorage",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(
+    functionFragment: "delegateForUserDecryption",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getUserDecryptionDelegationExpirationDate",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "isAccountDenied",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(functionFragment: "isAllowed", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "isAllowedForDecryption",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "isHandleDelegatedForUserDecryption",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(functionFragment: "multicall", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "persistAllowed",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "revokeDelegationForUserDecryption",
     data: BytesLike
   ): Result;
 }
@@ -139,6 +200,32 @@ export interface IACL extends BaseContract {
 
   cleanTransientStorage: TypedContractMethod<[], [void], "nonpayable">;
 
+  delegateForUserDecryption: TypedContractMethod<
+    [
+      delegate: AddressLike,
+      contractAddress: AddressLike,
+      expirationDate: BigNumberish
+    ],
+    [void],
+    "nonpayable"
+  >;
+
+  getUserDecryptionDelegationExpirationDate: TypedContractMethod<
+    [
+      delegator: AddressLike,
+      delegate: AddressLike,
+      contractAddress: AddressLike
+    ],
+    [bigint],
+    "view"
+  >;
+
+  isAccountDenied: TypedContractMethod<
+    [account: AddressLike],
+    [boolean],
+    "view"
+  >;
+
   isAllowed: TypedContractMethod<
     [handle: BytesLike, account: AddressLike],
     [boolean],
@@ -149,6 +236,31 @@ export interface IACL extends BaseContract {
     [handle: BytesLike],
     [boolean],
     "view"
+  >;
+
+  isHandleDelegatedForUserDecryption: TypedContractMethod<
+    [
+      delegator: AddressLike,
+      delegate: AddressLike,
+      contractAddress: AddressLike,
+      handle: BytesLike
+    ],
+    [boolean],
+    "view"
+  >;
+
+  multicall: TypedContractMethod<[data: BytesLike[]], [string[]], "payable">;
+
+  persistAllowed: TypedContractMethod<
+    [handle: BytesLike, account: AddressLike],
+    [boolean],
+    "view"
+  >;
+
+  revokeDelegationForUserDecryption: TypedContractMethod<
+    [delegate: AddressLike, contractAddress: AddressLike],
+    [void],
+    "nonpayable"
   >;
 
   getFunction<T extends ContractMethod = ContractMethod>(
@@ -176,6 +288,31 @@ export interface IACL extends BaseContract {
     nameOrSignature: "cleanTransientStorage"
   ): TypedContractMethod<[], [void], "nonpayable">;
   getFunction(
+    nameOrSignature: "delegateForUserDecryption"
+  ): TypedContractMethod<
+    [
+      delegate: AddressLike,
+      contractAddress: AddressLike,
+      expirationDate: BigNumberish
+    ],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "getUserDecryptionDelegationExpirationDate"
+  ): TypedContractMethod<
+    [
+      delegator: AddressLike,
+      delegate: AddressLike,
+      contractAddress: AddressLike
+    ],
+    [bigint],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "isAccountDenied"
+  ): TypedContractMethod<[account: AddressLike], [boolean], "view">;
+  getFunction(
     nameOrSignature: "isAllowed"
   ): TypedContractMethod<
     [handle: BytesLike, account: AddressLike],
@@ -185,6 +322,35 @@ export interface IACL extends BaseContract {
   getFunction(
     nameOrSignature: "isAllowedForDecryption"
   ): TypedContractMethod<[handle: BytesLike], [boolean], "view">;
+  getFunction(
+    nameOrSignature: "isHandleDelegatedForUserDecryption"
+  ): TypedContractMethod<
+    [
+      delegator: AddressLike,
+      delegate: AddressLike,
+      contractAddress: AddressLike,
+      handle: BytesLike
+    ],
+    [boolean],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "multicall"
+  ): TypedContractMethod<[data: BytesLike[]], [string[]], "payable">;
+  getFunction(
+    nameOrSignature: "persistAllowed"
+  ): TypedContractMethod<
+    [handle: BytesLike, account: AddressLike],
+    [boolean],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "revokeDelegationForUserDecryption"
+  ): TypedContractMethod<
+    [delegate: AddressLike, contractAddress: AddressLike],
+    [void],
+    "nonpayable"
+  >;
 
   filters: {};
 }

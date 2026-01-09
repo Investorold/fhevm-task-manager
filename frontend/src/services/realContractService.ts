@@ -384,7 +384,7 @@ class RealContractService {
   async createTask(task: Omit<Task, 'id' | 'createdAt'>): Promise<{ success: boolean; error?: string; taskId?: number }> {
       // Ensure we have a valid contract address
       if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0x64E706453cB72Cdef3a0e0367E67E8d0B1be8a2F';
+      this.contractAddress = '0x0D24D85b455c58cfFFbe8609Ae59894Ae209e4C9';
     }
 
     console.log('🔍 Contract service state:', {
@@ -563,7 +563,7 @@ class RealContractService {
   async createTaskWithText(task: Omit<Task, 'id' | 'createdAt'>): Promise<{ success: boolean; error?: string; taskId?: number }> {
     // Ensure we have a valid contract address
     if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0x64E706453cB72Cdef3a0e0367E67E8d0B1be8a2F';
+      this.contractAddress = '0x0D24D85b455c58cfFFbe8609Ae59894Ae209e4C9';
     }
 
     console.log('🔍 Contract service state:', {
@@ -734,7 +734,7 @@ class RealContractService {
   async createTaskWithNumbers(task: Omit<Task, 'id' | 'createdAt'> & { numericId: number }): Promise<{ success: boolean; error?: string; taskId?: number }> {
     // Ensure we have a valid contract address
     if (!this.contractAddress || this.contractAddress === '' || this.contractAddress === 'DEMO_MODE') {
-      this.contractAddress = '0x64E706453cB72Cdef3a0e0367E67E8d0B1be8a2F';
+      this.contractAddress = '0x0D24D85b455c58cfFFbe8609Ae59894Ae209e4C9';
     }
 
     console.log('🔍 Contract service state:', {
