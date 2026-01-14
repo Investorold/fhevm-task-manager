@@ -40,176 +40,167 @@ export function ProductionWalletConnect() {
 
   const detectWallets = () => {
     const wallets: WalletProvider[] = [];
+    const addedProviders = new Set<any>(); // Track unique providers
 
-    // MetaMask (most popular)
-    if (window.ethereum?.isMetaMask) {
-      wallets.push({
-        name: 'MetaMask',
-        provider: window.ethereum,
-        icon: '🦊',
-        isInstalled: true
+    // Helper to identify and add a provider
+    const identifyAndAddProvider = (provider: any) => {
+      if (!provider || addedProviders.has(provider)) return;
+
+      // Check specific wallet types (order matters - check specific first)
+      if (provider.isRabby) {
+        wallets.push({
+          name: 'Rabby Wallet',
+          provider: provider,
+          icon: '🐰',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isCoinbaseWallet) {
+        wallets.push({
+          name: 'Coinbase Wallet',
+          provider: provider,
+          icon: '🔵',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isTrust) {
+        wallets.push({
+          name: 'Trust Wallet',
+          provider: provider,
+          icon: '🔒',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isBraveWallet) {
+        wallets.push({
+          name: 'Brave Wallet',
+          provider: provider,
+          icon: '🦁',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isRainbow) {
+        wallets.push({
+          name: 'Rainbow',
+          provider: provider,
+          icon: '🌈',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isZerion) {
+        wallets.push({
+          name: 'Zerion',
+          provider: provider,
+          icon: '💎',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isFrame) {
+        wallets.push({
+          name: 'Frame',
+          provider: provider,
+          icon: '🖼️',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isTokenPocket) {
+        wallets.push({
+          name: 'TokenPocket',
+          provider: provider,
+          icon: '🎒',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isBitgetWallet) {
+        wallets.push({
+          name: 'Bitget Wallet',
+          provider: provider,
+          icon: '🟡',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isMathWallet) {
+        wallets.push({
+          name: 'Math Wallet',
+          provider: provider,
+          icon: '📐',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isSafePal) {
+        wallets.push({
+          name: 'SafePal',
+          provider: provider,
+          icon: '🛡️',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      } else if (provider.isMetaMask) {
+        // MetaMask check LAST (many wallets set isMetaMask for compatibility)
+        wallets.push({
+          name: 'MetaMask',
+          provider: provider,
+          icon: '🦊',
+          isInstalled: true
+        });
+        addedProviders.add(provider);
+      }
+    };
+
+    // Check for multiple providers array (EIP-6963 style)
+    if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+      console.log('🔍 Multiple providers detected:', window.ethereum.providers.length);
+      window.ethereum.providers.forEach((provider: any) => {
+        identifyAndAddProvider(provider);
       });
+    } else if (window.ethereum) {
+      // Single provider
+      identifyAndAddProvider(window.ethereum);
     }
 
-    // Trust Wallet
-    if (window.ethereum?.isTrust) {
-      wallets.push({
-        name: 'Trust Wallet',
-        provider: window.ethereum,
-        icon: '🔒',
-        isInstalled: true
-      });
-    }
-
-    // Rabby Wallet
-    if (window.ethereum?.isRabby) {
-      wallets.push({
-        name: 'Rabby Wallet',
-        provider: window.ethereum,
-        icon: '🐰',
-        isInstalled: true
-      });
-    }
-
-    // Coinbase Wallet
-    if (window.ethereum?.isCoinbaseWallet) {
-      wallets.push({
-        name: 'Coinbase Wallet',
-        provider: window.ethereum,
-        icon: '🔵',
-        isInstalled: true
-      });
-    }
-
-    // Brave Wallet
-    if (window.ethereum?.isBraveWallet) {
-      wallets.push({
-        name: 'Brave Wallet',
-        provider: window.ethereum,
-        icon: '🦁',
-        isInstalled: true
-      });
-    }
-
-    // OKX Wallet
-    if (window.okxwallet) {
+    // Check for standalone wallet objects
+    if (window.okxwallet && !addedProviders.has(window.okxwallet)) {
       wallets.push({
         name: 'OKX Wallet',
         provider: window.okxwallet,
         icon: '⭕',
         isInstalled: true
       });
+      addedProviders.add(window.okxwallet);
     }
 
-    // Phantom Wallet (EVM support)
-    if (window.phantom?.ethereum) {
+    if (window.phantom?.ethereum && !addedProviders.has(window.phantom.ethereum)) {
       wallets.push({
         name: 'Phantom',
         provider: window.phantom.ethereum,
         icon: '👻',
         isInstalled: true
       });
+      addedProviders.add(window.phantom.ethereum);
     }
 
-    // Rainbow Wallet
-    if (window.ethereum?.isRainbow) {
-      wallets.push({
-        name: 'Rainbow',
-        provider: window.ethereum,
-        icon: '🌈',
-        isInstalled: true
-      });
-    }
-
-    // WalletConnect
-    if (window.ethereum?.isWalletConnect) {
-      wallets.push({
-        name: 'WalletConnect',
-        provider: window.ethereum,
-        icon: '🔗',
-        isInstalled: true
-      });
-    }
-
-    // Frame Wallet
-    if (window.ethereum?.isFrame) {
-      wallets.push({
-        name: 'Frame',
-        provider: window.ethereum,
-        icon: '🖼️',
-        isInstalled: true
-      });
-    }
-
-    // TokenPocket
-    if (window.ethereum?.isTokenPocket) {
-      wallets.push({
-        name: 'TokenPocket',
-        provider: window.ethereum,
-        icon: '🎒',
-        isInstalled: true
-      });
-    }
-
-    // Bitget Wallet
-    if (window.ethereum?.isBitgetWallet) {
-      wallets.push({
-        name: 'Bitget Wallet',
-        provider: window.ethereum,
-        icon: '🟡',
-        isInstalled: true
-      });
-    }
-
-    // Math Wallet
-    if (window.ethereum?.isMathWallet) {
-      wallets.push({
-        name: 'Math Wallet',
-        provider: window.ethereum,
-        icon: '📐',
-        isInstalled: true
-      });
-    }
-
-    // SafePal Wallet
-    if (window.ethereum?.isSafePal) {
-      wallets.push({
-        name: 'SafePal',
-        provider: window.ethereum,
-        icon: '🛡️',
-        isInstalled: true
-      });
-    }
-
-    // Zerion Wallet
-    if (window.ethereum?.isZerion) {
-      wallets.push({
-        name: 'Zerion',
-        provider: window.ethereum,
-        icon: '💎',
-        isInstalled: true
-      });
-    } else if (window.zerionWallet) {
+    if (window.zerionWallet && !addedProviders.has(window.zerionWallet)) {
       wallets.push({
         name: 'Zerion',
         provider: window.zerionWallet,
         icon: '💎',
         isInstalled: true
       });
+      addedProviders.add(window.zerionWallet);
     }
 
-    // EVM Ask
-    if (window.evmAsk) {
+    if (window.evmAsk && !addedProviders.has(window.evmAsk)) {
       wallets.push({
         name: 'EVM Ask',
         provider: window.evmAsk,
         icon: '❓',
         isInstalled: true
       });
+      addedProviders.add(window.evmAsk);
     }
 
-    // Generic Ethereum provider (fallback)
-    if (window.ethereum && wallets.length === 0) {
+    // Generic fallback if nothing detected
+    if (wallets.length === 0 && window.ethereum) {
       wallets.push({
         name: 'Ethereum Wallet',
         provider: window.ethereum,
@@ -227,6 +218,7 @@ export function ProductionWalletConnect() {
       isWalletConnect: true
     });
 
+    console.log('🔍 Detected wallets:', wallets.map(w => w.name));
     setAvailableWallets(wallets);
   };
 
