@@ -153,9 +153,26 @@ export function ProductionWalletConnect() {
       window.ethereum.providers.forEach((provider: any) => {
         identifyAndAddProvider(provider);
       });
-    } else if (window.ethereum) {
-      // Single provider
+    }
+
+    // ALSO check window.ethereum directly - it might have a wallet not in providers array
+    if (window.ethereum && !addedProviders.has(window.ethereum)) {
       identifyAndAddProvider(window.ethereum);
+    }
+
+    // Check for MetaMask specifically if not found yet (it sometimes hides)
+    if (!wallets.some(w => w.name === 'MetaMask')) {
+      // Try to find MetaMask in providers array
+      const mmProvider = window.ethereum?.providers?.find((p: any) => p.isMetaMask && !p.isRabby && !p.isBraveWallet);
+      if (mmProvider && !addedProviders.has(mmProvider)) {
+        wallets.push({
+          name: 'MetaMask',
+          provider: mmProvider,
+          icon: '🦊',
+          isInstalled: true
+        });
+        addedProviders.add(mmProvider);
+      }
     }
 
     // Check for standalone wallet objects
