@@ -2287,6 +2287,11 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
         return;
       }
       
+      // Sanitize task ID to prevent XSS (CWE-79)
+      const sanitizedTaskId = String(decryptingTask?.id ?? '').replace(/[<>&"']/g, (c) =>
+        ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#x27;' }[c] || c)
+      );
+
       popup.document.write(`
         <html>
           <head>
@@ -2311,14 +2316,14 @@ export function TaskManager({ externalDemoMode = false, encryptedOnly = false }:
                 <div class="logo"></div>
                 <div class="title">MetaMask Transaction</div>
               </div>
-              
+
               <h3>Decrypt Task Data</h3>
               <p>You are about to decrypt encrypted task data from the blockchain.</p>
-              
+
               <div class="transaction">
                 <strong>Contract:</strong> TaskManager<br>
                 <strong>Method:</strong> decryptTask<br>
-                <strong>Task ID:</strong> ${decryptingTask?.id}<br>
+                <strong>Task ID:</strong> ${sanitizedTaskId}<br>
                 <div class="gas-fee">Estimated Gas Fee: ~0.001 ETH</div>
               </div>
               

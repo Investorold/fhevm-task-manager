@@ -53,7 +53,11 @@ contract TaskManager is ZamaEthereumConfig, Ownable {
     }
 
     function withdraw() external onlyOwner {
-        (bool success, ) = owner().call{value: address(this).balance}("");
+        // CEI Pattern: Cache balance before external call to prevent reentrancy
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No balance to withdraw");
+
+        (bool success, ) = owner().call{value: balance}("");
         require(success, "Withdrawal failed");
     }
 

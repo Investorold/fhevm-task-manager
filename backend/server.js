@@ -2,13 +2,23 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { ethers } = require('ethers');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// CSRF token storage (in production, use Redis or session store)
+const csrfTokens = new Map();
+
+// Generate CSRF token for a session
+const generateCsrfToken = () => crypto.randomBytes(32).toString('hex');
+
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173'],
+  credentials: true
+}));
 app.use(express.json());
 
 // In-memory storage (can be replaced with database later)
@@ -32,8 +42,27 @@ const writeTasks = () => {
 // Initialize on startup
 readTasks();
 
-// Optional: require signed requests for API access (set REQUIRE_SIGNATURE=true)
-const REQUIRE_SIGNATURE = process.env.REQUIRE_SIGNATURE === 'true';
+// Security: Require signature verification (disable with REQUIRE_SIGNATURE=false for dev only)
+const REQUIRE_SIGNATURE = process.env.REQUIRE_SIGNATURE !== 'false';
+
+// CSRF protection middleware (CWE-352)
+const csrfProtection = (req, res, next) => {
+  // Skip for GET/HEAD/OPTIONS (safe methods)
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+
+  const csrfToken = req.headers['x-csrf-token'];
+  const walletAddress = req.headers['x-wallet-address'];
+
+  // If wallet signature is provided, that's sufficient (web3 auth)
+  if (req.headers['x-signature']) return next();
+
+  // Otherwise, require CSRF token
+  if (!csrfToken || !csrfTokens.has(csrfToken)) {
+    return res.status(403).json({ error: 'Invalid or missing CSRF token' });
+  }
+
+  next();
+};
 
 const verifySignatureMiddleware = (req, res, next) => {
   if (!REQUIRE_SIGNATURE) return next();
@@ -62,8 +91,19 @@ const verifySignatureMiddleware = (req, res, next) => {
   }
 };
 
-// Apply signature verification to all API routes
-app.use('/api', verifySignatureMiddleware);
+// CSRF token endpoint
+app.get('/api/csrf-token', (req, res) => {
+  const token = generateCsrfToken();
+  csrfTokens.set(token, Date.now());
+  // Clean old tokens (older than 1 hour)
+  for (const [t, time] of csrfTokens) {
+    if (Date.now() - time > 3600000) csrfTokens.delete(t);
+  }
+  res.json({ csrfToken: token });
+});
+
+// Apply CSRF and signature verification to all API routes
+app.use('/api', csrfProtection, verifySignatureMiddleware);
 
 // Health check
 app.get('/health', (req, res) => {

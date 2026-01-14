@@ -147,24 +147,44 @@ export function ProductionWalletConnect() {
       }
     };
 
+    // Debug: Log all provider info
+    console.log('🔍 window.ethereum:', window.ethereum);
+    console.log('🔍 window.ethereum.providers:', window.ethereum?.providers);
+    console.log('🔍 window.ethereum.isMetaMask:', window.ethereum?.isMetaMask);
+    console.log('🔍 window.ethereum.isRabby:', window.ethereum?.isRabby);
+
     // Check for multiple providers array (EIP-6963 style)
     if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
       console.log('🔍 Multiple providers detected:', window.ethereum.providers.length);
-      window.ethereum.providers.forEach((provider: any) => {
+      window.ethereum.providers.forEach((provider: any, index: number) => {
+        console.log(`🔍 Provider ${index}:`, {
+          isMetaMask: provider.isMetaMask,
+          isRabby: provider.isRabby,
+          isCoinbaseWallet: provider.isCoinbaseWallet,
+          isBraveWallet: provider.isBraveWallet,
+          isTrust: provider.isTrust
+        });
         identifyAndAddProvider(provider);
       });
     }
 
     // ALSO check window.ethereum directly - it might have a wallet not in providers array
     if (window.ethereum && !addedProviders.has(window.ethereum)) {
+      console.log('🔍 Checking window.ethereum directly');
       identifyAndAddProvider(window.ethereum);
     }
 
     // Check for MetaMask specifically if not found yet (it sometimes hides)
     if (!wallets.some(w => w.name === 'MetaMask')) {
-      // Try to find MetaMask in providers array
-      const mmProvider = window.ethereum?.providers?.find((p: any) => p.isMetaMask && !p.isRabby && !p.isBraveWallet);
+      console.log('🔍 MetaMask not found yet, searching...');
+      // Try to find MetaMask in providers array - check for isMetaMask but NOT other wallets
+      const mmProvider = window.ethereum?.providers?.find((p: any) => {
+        const isActualMetaMask = p.isMetaMask && !p.isRabby && !p.isBraveWallet && !p.isCoinbaseWallet && !p.isTrust;
+        console.log('🔍 Checking provider for MetaMask:', { isMetaMask: p.isMetaMask, isRabby: p.isRabby, isActualMetaMask });
+        return isActualMetaMask;
+      });
       if (mmProvider && !addedProviders.has(mmProvider)) {
+        console.log('🔍 Found MetaMask provider!');
         wallets.push({
           name: 'MetaMask',
           provider: mmProvider,
