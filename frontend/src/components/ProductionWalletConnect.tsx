@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Wallet, Shield, Zap, AlertTriangle, ChevronDown, Check } from 'lucide-react';
+import { Wallet, Shield, Zap, AlertTriangle, ChevronDown, Check, Smartphone } from 'lucide-react';
 import { simpleWalletService } from '../services/simpleWalletService';
+import EthereumProvider from '@walletconnect/ethereum-provider';
 
 interface WalletProvider {
   name: string;
   provider: any;
   icon: string;
   isInstalled: boolean;
+  isWalletConnect?: boolean;
 }
+
+// WalletConnect Project ID - Get yours at https://cloud.walletconnect.com
+const WALLETCONNECT_PROJECT_ID = 'c4f79cc821944d9680842e34466bfb';
 
 export function ProductionWalletConnect() {
   const [availableWallets, setAvailableWallets] = useState<WalletProvider[]>([]);
@@ -213,7 +218,41 @@ export function ProductionWalletConnect() {
       });
     }
 
+    // WalletConnect - ALWAYS available (works with any mobile wallet)
+    wallets.push({
+      name: 'WalletConnect',
+      provider: null, // Will be created on demand
+      icon: '📱',
+      isInstalled: true,
+      isWalletConnect: true
+    });
+
     setAvailableWallets(wallets);
+  };
+
+  // Initialize WalletConnect provider
+  const initWalletConnect = async (): Promise<any> => {
+    try {
+      const wcProvider = await EthereumProvider.init({
+        projectId: WALLETCONNECT_PROJECT_ID,
+        chains: [11155111], // Sepolia
+        optionalChains: [1, 137, 56, 42161], // Mainnet, Polygon, BSC, Arbitrum
+        showQrModal: true,
+        methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData_v4'],
+        events: ['chainChanged', 'accountsChanged', 'disconnect'],
+        metadata: {
+          name: 'FHEVM Task Manager',
+          description: 'Secure encrypted task management powered by FHEVM',
+          url: window.location.origin,
+          icons: ['https://avatars.githubusercontent.com/u/37784886']
+        }
+      });
+
+      return wcProvider;
+    } catch (error) {
+      console.error('Failed to initialize WalletConnect:', error);
+      throw error;
+    }
   };
 
   const handleWalletSelect = (wallet: WalletProvider) => {
@@ -223,133 +262,149 @@ export function ProductionWalletConnect() {
 
   const handleConnectWallet = async () => {
     setIsConnecting(true);
-    
+
     try {
       console.log('🔧 Connecting wallet...');
-      
-      // Use selected wallet if available, otherwise use universal detection
+
       let provider = null;
       let walletName = 'Unknown Wallet';
-      
-      // If a wallet is selected, use it
-      if (selectedWallet) {
-        console.log('🔧 Using selected wallet:', selectedWallet.name);
-        provider = selectedWallet.provider;
-        walletName = selectedWallet.name;
-      } else if (availableWallets.length > 0) {
-        // Use the first available wallet if none selected
-        console.log('🔧 Using first available wallet:', availableWallets[0].name);
-        provider = availableWallets[0].provider;
-        walletName = availableWallets[0].name;
-      } else {
-        // Fallback to universal detection - Handle provider conflicts by using a stable reference
-      const getStableProvider = () => {
-        console.log('🔧 Detecting wallet providers...');
-        console.log('🔧 window.ethereum:', !!window.ethereum);
-        console.log('🔧 window.ethereum.providers:', window.ethereum?.providers?.length || 'none');
-        console.log('🔧 window.evmAsk:', !!window.evmAsk);
-        
-        // If we already have a selected provider, use it
-        if ((window as any).__selectedProvider) {
-          console.log('🔧 Using cached provider');
-          return (window as any).__selectedProvider;
+      const walletToUse = selectedWallet || (availableWallets.length > 0 ? availableWallets[0] : null);
+
+      if (!walletToUse) {
+        throw new Error('No wallet available. Please install a wallet or use WalletConnect.');
+      }
+
+      // Handle WalletConnect separately
+      if (walletToUse.isWalletConnect) {
+        console.log('🔗 Initializing WalletConnect...');
+        walletName = 'WalletConnect';
+
+        try {
+          provider = await initWalletConnect();
+
+          // Connect and show QR modal
+          console.log('🔗 Showing WalletConnect QR modal...');
+          await provider.connect();
+
+          const accounts = await provider.request({ method: 'eth_accounts' });
+          console.log('✅ WalletConnect accounts:', accounts);
+
+          if (!accounts || accounts.length === 0) {
+            throw new Error('No accounts found from WalletConnect.');
+          }
+
+          // Store provider globally
+          (window as any).__selectedProvider = provider;
+          (window as any).__stableProvider = provider;
+          (window as any).__isWalletConnect = true;
+
+          // Initialize wallet service
+          await simpleWalletService.connect();
+
+          (window as any).addNotification?.({
+            type: 'success',
+            title: 'Wallet Connected',
+            message: `Connected via WalletConnect! Address: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`,
+            duration: 4000
+          });
+
+          return;
+        } catch (wcError: any) {
+          console.error('❌ WalletConnect error:', wcError);
+          if (wcError.message?.includes('User rejected') || wcError.message?.includes('Connection request reset')) {
+            (window as any).addNotification?.({
+              type: 'error',
+              title: 'Connection Cancelled',
+              message: 'WalletConnect connection was cancelled.',
+              duration: 4000
+            });
+          } else {
+            (window as any).addNotification?.({
+              type: 'error',
+              title: 'WalletConnect Failed',
+              message: wcError.message || 'Failed to connect via WalletConnect.',
+              duration: 5000
+            });
+          }
+          return;
         }
-        
-        // Check for multiple wallet providers
-        if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
-          console.log('🔧 Multiple wallets detected:', window.ethereum.providers.length);
-          
-          // Try to find MetaMask first, but use any available
-          const selectedProvider = window.ethereum.providers.find((p: any) => p.isMetaMask) || window.ethereum.providers[0];
-          
-          console.log('🔧 Selected provider from array:', selectedProvider?.isMetaMask ? 'MetaMask' : 'Other');
-          
-          // Store it globally to prevent conflicts
-          (window as any).__selectedProvider = selectedProvider;
-          return selectedProvider;
-        } 
-        // Single wallet provider
-        else if (window.ethereum) {
-          console.log('🔧 Single wallet detected');
-          
-          // Store it globally to prevent conflicts
-          (window as any).__selectedProvider = window.ethereum;
-          return window.ethereum;
-        }
-        // Check for specific wallets
-        else if (window.evmAsk) {
-          console.log('🔧 EVM Ask detected');
-          
-          // Store it globally to prevent conflicts
-          (window as any).__selectedProvider = window.evmAsk;
-          return window.evmAsk;
-        }
-        
-        console.log('🔧 No wallet provider found');
-        return null;
-      };
-      
-      provider = getStableProvider();
-      
+      }
+
+      // Handle browser extension wallets
+      console.log('🔧 Using selected wallet:', walletToUse.name);
+      provider = walletToUse.provider;
+      walletName = walletToUse.name;
+
+      // If provider is still null, use fallback detection
       if (!provider) {
-        throw new Error('No EVM wallet found! Please install MetaMask, Trust Wallet, Coinbase Wallet, or any EVM-compatible wallet.');
+        // Handle multiple providers - find the specific one for selected wallet
+        if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+          console.log('🔧 Multiple wallets detected, finding:', walletToUse.name);
+
+          // Find provider matching the selected wallet
+          if (walletToUse.name === 'MetaMask') {
+            provider = window.ethereum.providers.find((p: any) => p.isMetaMask);
+          } else if (walletToUse.name === 'Rabby Wallet') {
+            provider = window.ethereum.providers.find((p: any) => p.isRabby);
+          } else if (walletToUse.name === 'Coinbase Wallet') {
+            provider = window.ethereum.providers.find((p: any) => p.isCoinbaseWallet);
+          } else if (walletToUse.name === 'Trust Wallet') {
+            provider = window.ethereum.providers.find((p: any) => p.isTrust);
+          } else if (walletToUse.name === 'Brave Wallet') {
+            provider = window.ethereum.providers.find((p: any) => p.isBraveWallet);
+          } else {
+            // Default to first provider
+            provider = window.ethereum.providers[0];
+          }
+        } else if (window.ethereum) {
+          provider = window.ethereum;
+        } else if (window.evmAsk) {
+          provider = window.evmAsk;
+        }
       }
-      
-      // Determine wallet name
-      if (provider.isMetaMask) walletName = 'MetaMask';
-      else if (provider.isCoinbaseWallet) walletName = 'Coinbase Wallet';
-      else if (provider.isTrust) walletName = 'Trust Wallet';
-      else if (provider.isRabby) walletName = 'Rabby';
-      else if (provider === window.evmAsk) walletName = 'EVM Ask';
-      else walletName = 'EVM Wallet';
-      
-      console.log(`🔧 Using: ${walletName}`);
+
+      if (!provider) {
+        throw new Error('Could not find wallet provider. Please try WalletConnect instead.');
       }
-      
+
+      console.log(`🔧 Using provider for: ${walletName}`);
+
       try {
-        // Request account access - this will trigger the wallet popup
+        // Request account access
         console.log(`🔧 Requesting accounts from ${walletName}...`);
-        console.log(`🔧 Provider details:`, {
-          isMetaMask: provider.isMetaMask,
-          isCoinbaseWallet: provider.isCoinbaseWallet,
-          isTrust: provider.isTrust,
-          isRabby: provider.isRabby,
-          selectedAddress: provider.selectedAddress
-        });
-        
+
         const accounts = await provider.request({
           method: 'eth_requestAccounts',
         });
-        
+
         console.log('✅ Accounts received:', accounts);
-        
+
         if (!accounts || accounts.length === 0) {
           throw new Error('No accounts found. Please unlock your wallet.');
         }
-        
+
         console.log(`✅ Connected to ${walletName}:`, accounts[0]);
-        
-        // Store the provider globally for the service to use
+
+        // Store the provider globally
         (window as any).__selectedProvider = provider;
         (window as any).__stableProvider = provider;
-        
-        // Initialize the wallet service with the selected provider
+        (window as any).__isWalletConnect = false;
+
+        // Initialize the wallet service
         await simpleWalletService.connect();
-        
+
         console.log('✅ Wallet service initialized');
-        
-        // Show success message
+
         (window as any).addNotification?.({
           type: 'success',
           title: 'Wallet Connected',
           message: `Successfully connected to ${walletName}! Address: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`,
           duration: 4000
         });
-        
+
       } catch (error: any) {
         console.error('❌ Wallet connection error:', error);
-        
-        // User rejected the request
+
         if (error.code === 4001) {
           (window as any).addNotification?.({
             type: 'error',
@@ -372,16 +427,15 @@ export function ProductionWalletConnect() {
             duration: 5000
           });
         } else {
-          console.error('❌ Unexpected error:', error);
           (window as any).addNotification?.({
             type: 'error',
             title: 'Connection Failed',
-            message: 'Please try refreshing the page or checking if your wallet is unlocked.',
+            message: 'Please try refreshing the page or use WalletConnect.',
             duration: 6000
           });
         }
       }
-      
+
     } catch (error: any) {
       console.error('❌ Connection failed:', error);
       (window as any).addNotification?.({

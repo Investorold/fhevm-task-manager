@@ -10,6 +10,7 @@ declare global {
     evmAsk?: any;
     __stableProvider?: any;
     __selectedProvider?: any;
+    __isWalletConnect?: boolean;
   }
 }
 
@@ -143,10 +144,12 @@ class SimpleWalletService {
       this.signer = await this.provider.getSigner();
       this.address = address;
       this.isConnected = true;
-      
+
       // Detect wallet name from provider (don't assume MetaMask)
-      if (selectedProvider.isMetaMask) {
-      this.walletName = 'MetaMask';
+      if (window.__isWalletConnect) {
+        this.walletName = 'WalletConnect';
+      } else if (selectedProvider.isMetaMask) {
+        this.walletName = 'MetaMask';
       } else if (selectedProvider.isCoinbaseWallet) {
         this.walletName = 'Coinbase Wallet';
       } else if (selectedProvider.isTrust) {
@@ -197,7 +200,7 @@ class SimpleWalletService {
   async connect(): Promise<void> {
     const selectedProvider = this.selectProvider();
     if (!selectedProvider) {
-      throw new Error('No wallet provider available. Install MetaMask or a compatible wallet.');
+      throw new Error('No wallet provider available. Install MetaMask or a compatible wallet, or use WalletConnect.');
     }
 
     this.provider = new ethers.BrowserProvider(selectedProvider);
@@ -207,7 +210,9 @@ class SimpleWalletService {
     const network = await this.provider.getNetwork();
 
     // Detect wallet name from provider
-    if (selectedProvider.isMetaMask) {
+    if (window.__isWalletConnect) {
+      this.walletName = 'WalletConnect';
+    } else if (selectedProvider.isMetaMask) {
       this.walletName = 'MetaMask';
     } else if (selectedProvider.isCoinbaseWallet) {
       this.walletName = 'Coinbase Wallet';
@@ -231,7 +236,8 @@ class SimpleWalletService {
     this.address = address;
     this.saveConnection();
 
-    if (network.chainId !== 11155111n) {
+    // Switch to Sepolia if not already on it (skip for WalletConnect as it handles chains differently)
+    if (network.chainId !== 11155111n && !window.__isWalletConnect) {
       try {
         await selectedProvider.request({
           method: 'wallet_switchEthereumChain',
@@ -267,6 +273,10 @@ class SimpleWalletService {
     this.address = '';
     this.walletName = '';
     localStorage.removeItem(this.STORAGE_KEY);
+    // Clear global provider references
+    delete window.__selectedProvider;
+    delete window.__stableProvider;
+    delete window.__isWalletConnect;
   }
 
   getProvider() {
